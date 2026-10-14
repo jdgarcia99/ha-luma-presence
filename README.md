@@ -1,50 +1,73 @@
+<p align="center">
+  <img src="images/icon.png" alt="LumaPresence" width="128">
+</p>
+
 # LumaPresence
 
-Simulación de presencia para Home Assistant que hace creíble una casa vacía: enciende y apaga luces de forma aleatoria pero realista, se integra con la alarma y aprende cómo se usa de verdad la casa.
+Presence simulation for Home Assistant that makes an empty house look lived in. LumaPresence switches lights on and off in a random but believable way, works alongside your alarm, and learns how your home is really used.
 
-> Estado: **fase 1 (v0.1.0)**. Modos Sol y Horario + recogida de datos de aprendizaje. Replay, Dream, secuencia nocturna e integración con la alarma llegan en las fases 2 y 3.
+> **Status: phase 1 (v0.1.0).** Sun and Time modes plus learning data collection. Alarm integration, the night sequence, and the Replay and Dream modes arrive in phases 2 and 3.
 
-## Instalación (HACS)
+## Installation (HACS)
 
-1. HACS → menú ⋮ → *Repositorios personalizados* → `https://github.com/jdgarcia99/ha-luma-presence`, categoría *Integración*.
-2. Descarga **LumaPresence** y reinicia Home Assistant.
-3. *Ajustes → Dispositivos y servicios → Añadir integración → LumaPresence*.
+1. In HACS, open the ⋮ menu → **Custom repositories**, add `https://github.com/jdgarcia99/ha-luma-presence` with category **Integration**.
+2. Download **LumaPresence** and restart Home Assistant.
+3. Go to **Settings → Devices & services → Add integration → LumaPresence**.
 
-## Configuración
+## Configuration
 
-| Campo | Para qué sirve |
+| Option | Purpose |
 |---|---|
-| Luces de simulación | Luces e interruptores que puede controlar la simulación |
-| Luces delanteras | Subconjunto visible desde la calle; se garantiza un mínimo encendidas |
-| Personas | Si no hay nadie en casa, el aprendizaje se pausa |
-| Panel de alarma | Con la alarma en *armada ausente*, el aprendizaje se pausa |
-| Márgenes | Horas descartadas antes de una ausencia y pausa tras el regreso |
-| Solo acciones humanas | Ignora cambios hechos por automatizaciones y scripts |
+| Simulation lights | Lights and switches the simulation may control |
+| Front lights | Subset visible from the street; a minimum of them is kept on |
+| People | When nobody is home, learning pauses |
+| Alarm panel | While the alarm is armed away, learning pauses |
+| Learning margins | Hours discarded before an absence, and hours learning stays paused after returning |
+| Learn only from human actions | Ignores changes made by automations and scripts |
 
-## Entidades
+All options can be changed later from the integration's **Configure** button.
 
-- `switch.luma_presence_simulation`: interruptor maestro. Se restaura tras un reinicio y retoma la simulación si toca.
-- `select.luma_presence_mode`: **Sol** (desde la puesta de sol) u **Horario** (hora de inicio).
-- `select.luma_presence_stop_behavior`: qué hacer con las luces al detener la simulación a mano.
-- Ajustes: mínimo/máximo de luces, mínimo de delanteras, permanencia, intervalo de apagado, horas de inicio/fin/fin tardía, llegada tardía e inicio/fin aleatorios.
-- Sensores: estado, próximo evento, última acción, simulando, aprendiendo y días de aprendizaje válidos.
+## Entities
 
-La simulación termina siempre al amanecer como muy tarde. Los finales programados apagan las luces poco a poco.
+- `switch.luma_presence_simulation`: master switch. Its state is restored after a restart, and the simulation resumes if it is inside its window.
+- `select.luma_presence_mode`: **Sun** (starts at sunset) or **Time** (starts at a fixed time).
+- `select.luma_presence_stop_behavior`: what to do with the lights the simulation turned on when it is stopped manually: keep them on, turn them off at once, turn them off gradually, or keep them on only at night.
+- Settings: minimum and maximum lights on, minimum front lights on, dwell times, switch-off interval, start, end and late end times, late arrival, and random start and end delays.
+- Sensors: status, next event, last action, simulating, learning, and valid learning days.
 
-### Regla de propiedad
+The simulation always ends at sunrise at the latest. Scheduled ends turn the lights off gradually.
 
-LumaPresence solo apaga luces que encendió ella y que nadie ha tocado después. Si entras y enciendes una luz, nunca te la apagará.
+### Ownership rule
 
-## Aprendizaje
+LumaPresence only turns off lights that it turned on itself and that nobody has touched since. If you come home and switch on a light, it will never turn it off.
 
-Desde el primer día, LumaPresence guarda en `.storage` el uso real de las luces, por días y solo con la casa habitada. El aprendizaje se pausa con la simulación activa, la alarma armada en ausente, nadie en casa o la pausa manual. Los días excluidos no cuentan como días sin actividad. Tras una ausencia de más de 48 h se excluye el día completo del regreso.
+## Learning
 
-## Servicios
+From day one, LumaPresence stores real light usage in `.storage`, per day and only while the house is occupied, so it does not depend on the recorder's retention.
 
-- `luma_presence.start` / `luma_presence.stop` (con `lights_behavior` opcional).
-- `luma_presence.forget_period`: borra lo aprendido entre dos fechas.
+Learning pauses while the simulation is enabled, the alarm is armed away, nobody is home, or it has been paused manually. Excluded days never count as days without activity: statistics are based only on observed time. After an absence longer than 48 hours, the whole day of the return is excluded.
 
-## Hoja de ruta
+## Services
 
-- **Fase 2**: integración con la alarma, secuencia nocturna y modo Replay.
-- **Fase 3**: modo Dream (patrones nuevos generados a partir de lo aprendido, con IA opcional), reparaciones y diagnósticos.
+- `luma_presence.start` / `luma_presence.stop`: turn the simulation on or off. `stop` accepts an optional `lights_behavior` that overrides the configured stop behaviour.
+- `luma_presence.forget_period`: deletes everything learned between two dates.
+
+## Translations
+
+The user interface is available in English and Spanish. Contributions for other languages are welcome: add a file to `custom_components/luma_presence/translations/`.
+
+## Roadmap
+
+- **Phase 2**: alarm integration, night sequence, and Replay mode (replays your real usage from previous days).
+- **Phase 3**: Dream mode (new, believable patterns generated from what has been learned, with optional AI), repairs and diagnostics.
+
+## Development
+
+```bash
+pip install pytest-homeassistant-custom-component
+pytest
+```
+
+## License
+
+MIT
