@@ -1,0 +1,223 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "LumaPresence",
+        "description": "Configure the lights and entities used by the presence simulation.",
+        "data": {
+          "name": "Name",
+          "lights": "Simulation lights",
+          "front_lights": "Front lights",
+          "persons": "People",
+          "alarm_entity": "Alarm panel",
+          "margin_before_hours": "Learning margin before an absence",
+          "margin_after_hours": "Learning margin after returning",
+          "learn_only_human": "Learn only from human actions"
+        },
+        "data_description": {
+          "lights": "Lights and switches the simulation may control.",
+          "front_lights": "Lights visible from the street. They must also be simulation lights.",
+          "persons": "When none of these people is home, the house counts as empty and learning stops.",
+          "alarm_entity": "Learning stops while this alarm is armed away.",
+          "margin_before_hours": "Hours of activity discarded just before an absence is detected.",
+          "margin_after_hours": "Hours learning stays paused after coming back.",
+          "learn_only_human": "Ignore light changes made by automations and scripts."
+        }
+      }
+    },
+    "error": {
+      "no_lights": "Select at least one light.",
+      "front_not_subset": "Front lights must also be selected as simulation lights."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "LumaPresence",
+        "data": {
+          "lights": "Simulation lights",
+          "front_lights": "Front lights",
+          "persons": "People",
+          "alarm_entity": "Alarm panel",
+          "margin_before_hours": "Learning margin before an absence",
+          "margin_after_hours": "Learning margin after returning",
+          "learn_only_human": "Learn only from human actions"
+        },
+        "data_description": {
+          "lights": "Lights and switches the simulation may control.",
+          "front_lights": "Lights visible from the street. They must also be simulation lights.",
+          "persons": "When none of these people is home, the house counts as empty and learning stops.",
+          "alarm_entity": "Learning stops while this alarm is armed away.",
+          "margin_before_hours": "Hours of activity discarded just before an absence is detected.",
+          "margin_after_hours": "Hours learning stays paused after coming back.",
+          "learn_only_human": "Ignore light changes made by automations and scripts."
+        }
+      }
+    },
+    "error": {
+      "no_lights": "Select at least one light.",
+      "front_not_subset": "Front lights must also be selected as simulation lights."
+    }
+  },
+  "entity": {
+    "switch": {
+      "simulation": {
+        "name": "Simulation"
+      },
+      "late_arrival": {
+        "name": "Late arrival"
+      },
+      "delayed_start": {
+        "name": "Random start delay"
+      },
+      "delayed_end": {
+        "name": "Random end delay"
+      },
+      "learning_paused": {
+        "name": "Pause learning"
+      }
+    },
+    "select": {
+      "mode": {
+        "name": "Mode",
+        "state": {
+          "sun": "Sun",
+          "time": "Time"
+        }
+      },
+      "stop_behavior": {
+        "name": "Lights when stopping",
+        "state": {
+          "keep_on": "Keep them on",
+          "off_now": "Turn them off at once",
+          "off_gradual": "Turn them off gradually",
+          "keep_if_night": "Keep them on at night"
+        }
+      }
+    },
+    "number": {
+      "min_lights": {
+        "name": "Minimum lights on"
+      },
+      "max_lights": {
+        "name": "Maximum lights on"
+      },
+      "min_front_lights": {
+        "name": "Minimum front lights on"
+      },
+      "min_dwell": {
+        "name": "Minimum dwell time"
+      },
+      "max_dwell": {
+        "name": "Maximum dwell time"
+      },
+      "stop_interval": {
+        "name": "Maximum switch-off interval"
+      }
+    },
+    "time": {
+      "start_time": {
+        "name": "Start time"
+      },
+      "end_time": {
+        "name": "End time"
+      },
+      "late_end_time": {
+        "name": "Late end time"
+      }
+    },
+    "binary_sensor": {
+      "simulating": {
+        "name": "Simulating"
+      },
+      "learning_active": {
+        "name": "Learning"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Status",
+        "state": {
+          "idle": "Idle",
+          "waiting": "Waiting",
+          "simulating": "Simulating",
+          "stopping": "Stopping"
+        }
+      },
+      "next_event": {
+        "name": "Next event"
+      },
+      "last_action": {
+        "name": "Last action"
+      },
+      "learning_days": {
+        "name": "Valid learning days"
+      }
+    }
+  },
+  "selector": {
+    "stop_behavior": {
+      "options": {
+        "keep_on": "Keep them on",
+        "off_now": "Turn them off at once",
+        "off_gradual": "Turn them off gradually",
+        "keep_if_night": "Keep them on at night"
+      }
+    }
+  },
+  "services": {
+    "start": {
+      "name": "Start simulation",
+      "description": "Turns the simulation master switch on.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Instance",
+          "description": "LumaPresence instance. All instances if empty."
+        }
+      }
+    },
+    "stop": {
+      "name": "Stop simulation",
+      "description": "Turns the simulation master switch off.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Instance",
+          "description": "LumaPresence instance. All instances if empty."
+        },
+        "lights_behavior": {
+          "name": "Lights",
+          "description": "Overrides the configured behaviour for the lights the simulation turned on."
+        }
+      }
+    },
+    "forget_period": {
+      "name": "Forget period",
+      "description": "Deletes the learned data between two dates (inclusive).",
+      "fields": {
+        "config_entry_id": {
+          "name": "Instance",
+          "description": "LumaPresence instance. All instances if empty."
+        },
+        "start_date": {
+          "name": "Start date",
+          "description": "First day to forget."
+        },
+        "end_date": {
+          "name": "End date",
+          "description": "Last day to forget."
+        }
+      }
+    }
+  },
+  "issues": {
+    "missing_entities": {
+      "title": "LumaPresence: missing entities",
+      "description": "These entities configured in {title} no longer exist: {entities}. Update the integration options."
+    }
+  },
+  "exceptions": {
+    "no_entry": {
+      "message": "No loaded LumaPresence instance matches the request."
+    }
+  }
+}

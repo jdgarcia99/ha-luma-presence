@@ -1,0 +1,37 @@
+start:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: luma_presence
+
+stop:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: luma_presence
+    lights_behavior:
+      selector:
+        select:
+          translation_key: stop_behavior
+          options:
+            - keep_on
+            - off_now
+            - off_gradual
+            - keep_if_night
+
+forget_period:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: luma_presence
+    start_date:
+      required: true
+      selector:
+        date:
+    end_date:
+      required: true
+      selector:
+        date:

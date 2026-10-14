@@ -1,0 +1,12 @@
+{
+  "domain": "luma_presence",
+  "name": "LumaPresence",
+  "codeowners": ["@jdgarcia99"],
+  "config_flow": true,
+  "documentation": "https://github.com/jdgarcia99/ha-luma-presence",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/jdgarcia99/ha-luma-presence/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

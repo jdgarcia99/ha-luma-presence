@@ -1,0 +1,77 @@
+"""Constants for LumaPresence."""
+
+from __future__ import annotations
+
+from datetime import timedelta
+from typing import Final
+
+DOMAIN: Final = "luma_presence"
+VERSION: Final = "0.1.0"
+DEFAULT_NAME: Final = "LumaPresence"
+
+# Configuration (stored in the config entry options)
+CONF_LIGHTS: Final = "lights"
+CONF_FRONT_LIGHTS: Final = "front_lights"
+CONF_PERSONS: Final = "persons"
+CONF_ALARM: Final = "alarm_entity"
+CONF_MARGIN_BEFORE: Final = "margin_before_hours"
+CONF_MARGIN_AFTER: Final = "margin_after_hours"
+CONF_HUMAN_ONLY: Final = "learn_only_human"
+
+DEFAULT_MARGIN_BEFORE: Final = 2.0
+DEFAULT_MARGIN_AFTER: Final = 2.0
+DEFAULT_HUMAN_ONLY: Final = True
+
+# Simulation modes (Replay and Dream arrive in later phases)
+MODE_SUN: Final = "sun"
+MODE_TIME: Final = "time"
+MODES: Final = [MODE_SUN, MODE_TIME]
+
+# What to do with the lights the simulation turned on when it is stopped
+STOP_KEEP_ON: Final = "keep_on"
+STOP_OFF_NOW: Final = "off_now"
+STOP_OFF_GRADUAL: Final = "off_gradual"
+STOP_KEEP_IF_NIGHT: Final = "keep_if_night"
+STOP_BEHAVIORS: Final = [STOP_KEEP_ON, STOP_OFF_NOW, STOP_OFF_GRADUAL, STOP_KEEP_IF_NIGHT]
+
+# Engine status
+STATUS_IDLE: Final = "idle"
+STATUS_WAITING: Final = "waiting"
+STATUS_SIMULATING: Final = "simulating"
+STATUS_STOPPING: Final = "stopping"
+STATUSES: Final = [STATUS_IDLE, STATUS_WAITING, STATUS_SIMULATING, STATUS_STOPPING]
+
+EVENT_START: Final = "start"
+EVENT_END: Final = "end"
+
+MAX_START_JITTER_MIN: Final = 30
+MAX_END_JITTER_MIN: Final = 30
+OWN_CONTEXT_MAXLEN: Final = 1000
+
+# Learning gate
+REASON_SIMULATION: Final = "simulation_enabled"
+REASON_ALARM: Final = "alarm_armed_away"
+REASON_AWAY: Final = "nobody_home"
+REASON_PAUSED: Final = "paused"
+REASON_MARGIN: Final = "return_margin"
+ABSENCE_REASONS: Final = frozenset({REASON_SIMULATION, REASON_ALARM, REASON_AWAY})
+
+LONG_ABSENCE: Final = timedelta(hours=48)
+COMMIT_INTERVAL: Final = timedelta(minutes=15)
+VALID_DAY_MIN_EXPOSURE_S: Final = 16 * 3600
+STORE_VERSION: Final = 1
+STORE_MAX_DAYS: Final = 400
+
+# Services
+SERVICE_START: Final = "start"
+SERVICE_STOP: Final = "stop"
+SERVICE_FORGET_PERIOD: Final = "forget_period"
+ATTR_CONFIG_ENTRY_ID: Final = "config_entry_id"
+ATTR_LIGHTS_BEHAVIOR: Final = "lights_behavior"
+ATTR_START_DATE: Final = "start_date"
+ATTR_END_DATE: Final = "end_date"
+
+
+def signal_update(entry_id: str) -> str:
+    """Dispatcher signal used to refresh the entities of one entry."""
+    return f"{DOMAIN}_update_{entry_id}"

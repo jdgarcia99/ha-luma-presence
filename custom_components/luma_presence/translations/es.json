@@ -1,0 +1,223 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "LumaPresence",
+        "description": "Configura las luces y entidades que usará la simulación de presencia.",
+        "data": {
+          "name": "Nombre",
+          "lights": "Luces de simulación",
+          "front_lights": "Luces delanteras",
+          "persons": "Personas",
+          "alarm_entity": "Panel de alarma",
+          "margin_before_hours": "Margen de aprendizaje antes de una ausencia",
+          "margin_after_hours": "Margen de aprendizaje tras el regreso",
+          "learn_only_human": "Aprender solo de acciones humanas"
+        },
+        "data_description": {
+          "lights": "Luces e interruptores que puede controlar la simulación.",
+          "front_lights": "Luces visibles desde la calle. También deben estar entre las luces de simulación.",
+          "persons": "Si ninguna de estas personas está en casa, la casa se considera vacía y el aprendizaje se pausa.",
+          "alarm_entity": "El aprendizaje se pausa mientras esta alarma esté armada en modo ausente.",
+          "margin_before_hours": "Horas de actividad que se descartan justo antes de detectar una ausencia.",
+          "margin_after_hours": "Horas que el aprendizaje sigue pausado después de volver.",
+          "learn_only_human": "Ignora los cambios de luces hechos por automatizaciones y scripts."
+        }
+      }
+    },
+    "error": {
+      "no_lights": "Selecciona al menos una luz.",
+      "front_not_subset": "Las luces delanteras también deben estar seleccionadas como luces de simulación."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "LumaPresence",
+        "data": {
+          "lights": "Luces de simulación",
+          "front_lights": "Luces delanteras",
+          "persons": "Personas",
+          "alarm_entity": "Panel de alarma",
+          "margin_before_hours": "Margen de aprendizaje antes de una ausencia",
+          "margin_after_hours": "Margen de aprendizaje tras el regreso",
+          "learn_only_human": "Aprender solo de acciones humanas"
+        },
+        "data_description": {
+          "lights": "Luces e interruptores que puede controlar la simulación.",
+          "front_lights": "Luces visibles desde la calle. También deben estar entre las luces de simulación.",
+          "persons": "Si ninguna de estas personas está en casa, la casa se considera vacía y el aprendizaje se pausa.",
+          "alarm_entity": "El aprendizaje se pausa mientras esta alarma esté armada en modo ausente.",
+          "margin_before_hours": "Horas de actividad que se descartan justo antes de detectar una ausencia.",
+          "margin_after_hours": "Horas que el aprendizaje sigue pausado después de volver.",
+          "learn_only_human": "Ignora los cambios de luces hechos por automatizaciones y scripts."
+        }
+      }
+    },
+    "error": {
+      "no_lights": "Selecciona al menos una luz.",
+      "front_not_subset": "Las luces delanteras también deben estar seleccionadas como luces de simulación."
+    }
+  },
+  "entity": {
+    "switch": {
+      "simulation": {
+        "name": "Simulación"
+      },
+      "late_arrival": {
+        "name": "Llegada tardía"
+      },
+      "delayed_start": {
+        "name": "Inicio aleatorio"
+      },
+      "delayed_end": {
+        "name": "Fin aleatorio"
+      },
+      "learning_paused": {
+        "name": "Pausar aprendizaje"
+      }
+    },
+    "select": {
+      "mode": {
+        "name": "Modo",
+        "state": {
+          "sun": "Sol",
+          "time": "Horario"
+        }
+      },
+      "stop_behavior": {
+        "name": "Luces al detener",
+        "state": {
+          "keep_on": "Dejarlas encendidas",
+          "off_now": "Apagarlas de golpe",
+          "off_gradual": "Apagarlas poco a poco",
+          "keep_if_night": "Dejarlas si es de noche"
+        }
+      }
+    },
+    "number": {
+      "min_lights": {
+        "name": "Mínimo de luces encendidas"
+      },
+      "max_lights": {
+        "name": "Máximo de luces encendidas"
+      },
+      "min_front_lights": {
+        "name": "Mínimo de luces delanteras"
+      },
+      "min_dwell": {
+        "name": "Permanencia mínima"
+      },
+      "max_dwell": {
+        "name": "Permanencia máxima"
+      },
+      "stop_interval": {
+        "name": "Intervalo máximo de apagado"
+      }
+    },
+    "time": {
+      "start_time": {
+        "name": "Hora de inicio"
+      },
+      "end_time": {
+        "name": "Hora de fin"
+      },
+      "late_end_time": {
+        "name": "Hora de fin tardía"
+      }
+    },
+    "binary_sensor": {
+      "simulating": {
+        "name": "Simulando"
+      },
+      "learning_active": {
+        "name": "Aprendiendo"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Estado",
+        "state": {
+          "idle": "Inactiva",
+          "waiting": "En espera",
+          "simulating": "Simulando",
+          "stopping": "Apagando"
+        }
+      },
+      "next_event": {
+        "name": "Próximo evento"
+      },
+      "last_action": {
+        "name": "Última acción"
+      },
+      "learning_days": {
+        "name": "Días de aprendizaje válidos"
+      }
+    }
+  },
+  "selector": {
+    "stop_behavior": {
+      "options": {
+        "keep_on": "Dejarlas encendidas",
+        "off_now": "Apagarlas de golpe",
+        "off_gradual": "Apagarlas poco a poco",
+        "keep_if_night": "Dejarlas si es de noche"
+      }
+    }
+  },
+  "services": {
+    "start": {
+      "name": "Iniciar simulación",
+      "description": "Enciende el interruptor maestro de la simulación.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Instancia",
+          "description": "Instancia de LumaPresence. Todas si se deja vacío."
+        }
+      }
+    },
+    "stop": {
+      "name": "Detener simulación",
+      "description": "Apaga el interruptor maestro de la simulación.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Instancia",
+          "description": "Instancia de LumaPresence. Todas si se deja vacío."
+        },
+        "lights_behavior": {
+          "name": "Luces",
+          "description": "Sustituye el comportamiento configurado para las luces que encendió la simulación."
+        }
+      }
+    },
+    "forget_period": {
+      "name": "Olvidar periodo",
+      "description": "Borra los datos aprendidos entre dos fechas (ambas incluidas).",
+      "fields": {
+        "config_entry_id": {
+          "name": "Instancia",
+          "description": "Instancia de LumaPresence. Todas si se deja vacío."
+        },
+        "start_date": {
+          "name": "Fecha de inicio",
+          "description": "Primer día que se olvida."
+        },
+        "end_date": {
+          "name": "Fecha de fin",
+          "description": "Último día que se olvida."
+        }
+      }
+    }
+  },
+  "issues": {
+    "missing_entities": {
+      "title": "LumaPresence: faltan entidades",
+      "description": "Estas entidades configuradas en {title} ya no existen: {entities}. Actualiza las opciones de la integración."
+    }
+  },
+  "exceptions": {
+    "no_entry": {
+      "message": "Ninguna instancia cargada de LumaPresence coincide con la petición."
+    }
+  }
+}
