@@ -3,60 +3,149 @@
     "step": {
       "user": {
         "title": "LumaPresence",
-        "description": "Configura las luces y entidades que usará la simulación de presencia.",
+        "description": "Pon nombre a esta instancia y elige las luces que puede controlar la simulación.",
         "data": {
           "name": "Nombre",
-          "lights": "Luces de simulación",
+          "lights": "Luces de simulación"
+        },
+        "data_description": {
+          "lights": "Luces e interruptores que puede controlar la simulación."
+        }
+      },
+      "facades": {
+        "title": "Fachadas",
+        "description": "Marca las luces de simulación que se ven desde la calle (delanteras) o desde la parte trasera de la casa (traseras). El resto cuentan como luces interiores.",
+        "data": {
           "front_lights": "Luces delanteras",
-          "persons": "Personas",
-          "alarm_entity": "Panel de alarma",
-          "margin_before_hours": "Margen de aprendizaje antes de una ausencia",
-          "margin_after_hours": "Margen de aprendizaje tras el regreso",
+          "rear_lights": "Luces traseras"
+        },
+        "data_description": {
+          "front_lights": "Visibles desde la calle. Durante la simulación se mantiene encendido un mínimo de ellas.",
+          "rear_lights": "Visibles desde la parte trasera de la casa. Durante la simulación se mantiene encendido un mínimo de ellas."
+        }
+      },
+      "learning": {
+        "title": "Aprendizaje",
+        "description": "Elige dónde aprende LumaPresence cómo se usa de verdad la casa. Se aprende de todas las luces de estas plantas y áreas, salvo las entidades deshabilitadas u ocultas y las de configuración o diagnóstico, como los LED de estado. Las luces de simulación se aprenden siempre.",
+        "data": {
+          "learn_floors": "Plantas interiores",
+          "learn_areas": "Áreas interiores",
+          "learn_extra": "Entidades extra",
+          "learn_exclude": "Entidades excluidas",
           "learn_only_human": "Aprender solo de acciones humanas"
         },
         "data_description": {
-          "lights": "Luces e interruptores que puede controlar la simulación.",
-          "front_lights": "Luces visibles desde la calle. También deben estar entre las luces de simulación.",
+          "learn_floors": "Se aprende de las luces de todas las áreas de estas plantas.",
+          "learn_areas": "Áreas interiores que no pertenecen a ninguna de las plantas anteriores.",
+          "learn_extra": "Por ejemplo, relés que aparecen como interruptores o lámparas sin área.",
+          "learn_exclude": "Nunca se aprende de estas entidades.",
+          "learn_only_human": "Ignora los cambios de luces hechos por automatizaciones y scripts."
+        }
+      },
+      "learning_preview": {
+        "title": "Vista previa del aprendizaje",
+        "description": "LumaPresence aprenderá de **{count}** entidades. Se muestran {shown}:\n\n{entities}"
+      },
+      "presence": {
+        "title": "Personas y alarma",
+        "description": "El aprendizaje se pausa mientras la casa está vacía.",
+        "data": {
+          "persons": "Personas",
+          "alarm_entity": "Panel de alarma",
+          "margin_before_hours": "Margen de aprendizaje antes de una ausencia",
+          "margin_after_hours": "Margen de aprendizaje tras el regreso"
+        },
+        "data_description": {
           "persons": "Si ninguna de estas personas está en casa, la casa se considera vacía y el aprendizaje se pausa.",
           "alarm_entity": "El aprendizaje se pausa mientras esta alarma esté armada en modo ausente.",
           "margin_before_hours": "Horas de actividad que se descartan justo antes de detectar una ausencia.",
-          "margin_after_hours": "Horas que el aprendizaje sigue pausado después de volver.",
-          "learn_only_human": "Ignora los cambios de luces hechos por automatizaciones y scripts."
+          "margin_after_hours": "Horas que el aprendizaje sigue pausado después de volver."
         }
       }
     },
     "error": {
       "no_lights": "Selecciona al menos una luz.",
-      "front_not_subset": "Las luces delanteras también deben estar seleccionadas como luces de simulación."
+      "facade_not_subset": "Las luces delanteras y traseras también deben ser luces de simulación.",
+      "facade_overlap": "Una luz no puede ser delantera y trasera a la vez."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "LumaPresence",
+        "menu_options": {
+          "simulation_lights": "Luces de simulación",
+          "facades": "Fachadas",
+          "learning": "Aprendizaje",
+          "learning_preview": "Vista previa del aprendizaje",
+          "presence": "Personas y alarma",
+          "save": "Guardar"
+        }
+      },
+      "simulation_lights": {
+        "title": "Luces de simulación",
         "data": {
-          "lights": "Luces de simulación",
+          "lights": "Luces de simulación"
+        },
+        "data_description": {
+          "lights": "Luces e interruptores que puede controlar la simulación."
+        }
+      },
+      "facades": {
+        "title": "Fachadas",
+        "description": "Marca las luces de simulación que se ven desde la calle (delanteras) o desde la parte trasera de la casa (traseras). El resto cuentan como luces interiores.",
+        "data": {
           "front_lights": "Luces delanteras",
-          "persons": "Personas",
-          "alarm_entity": "Panel de alarma",
-          "margin_before_hours": "Margen de aprendizaje antes de una ausencia",
-          "margin_after_hours": "Margen de aprendizaje tras el regreso",
+          "rear_lights": "Luces traseras"
+        },
+        "data_description": {
+          "front_lights": "Visibles desde la calle. Durante la simulación se mantiene encendido un mínimo de ellas.",
+          "rear_lights": "Visibles desde la parte trasera de la casa. Durante la simulación se mantiene encendido un mínimo de ellas."
+        }
+      },
+      "learning": {
+        "title": "Aprendizaje",
+        "description": "Elige dónde aprende LumaPresence cómo se usa de verdad la casa. Se aprende de todas las luces de estas plantas y áreas, salvo las entidades deshabilitadas u ocultas y las de configuración o diagnóstico, como los LED de estado. Las luces de simulación se aprenden siempre.",
+        "data": {
+          "learn_floors": "Plantas interiores",
+          "learn_areas": "Áreas interiores",
+          "learn_extra": "Entidades extra",
+          "learn_exclude": "Entidades excluidas",
           "learn_only_human": "Aprender solo de acciones humanas"
         },
         "data_description": {
-          "lights": "Luces e interruptores que puede controlar la simulación.",
-          "front_lights": "Luces visibles desde la calle. También deben estar entre las luces de simulación.",
+          "learn_floors": "Se aprende de las luces de todas las áreas de estas plantas.",
+          "learn_areas": "Áreas interiores que no pertenecen a ninguna de las plantas anteriores.",
+          "learn_extra": "Por ejemplo, relés que aparecen como interruptores o lámparas sin área.",
+          "learn_exclude": "Nunca se aprende de estas entidades.",
+          "learn_only_human": "Ignora los cambios de luces hechos por automatizaciones y scripts."
+        }
+      },
+      "learning_preview": {
+        "title": "Vista previa del aprendizaje",
+        "description": "LumaPresence aprenderá de **{count}** entidades. Se muestran {shown}:\n\n{entities}"
+      },
+      "presence": {
+        "title": "Personas y alarma",
+        "description": "El aprendizaje se pausa mientras la casa está vacía.",
+        "data": {
+          "persons": "Personas",
+          "alarm_entity": "Panel de alarma",
+          "margin_before_hours": "Margen de aprendizaje antes de una ausencia",
+          "margin_after_hours": "Margen de aprendizaje tras el regreso"
+        },
+        "data_description": {
           "persons": "Si ninguna de estas personas está en casa, la casa se considera vacía y el aprendizaje se pausa.",
           "alarm_entity": "El aprendizaje se pausa mientras esta alarma esté armada en modo ausente.",
           "margin_before_hours": "Horas de actividad que se descartan justo antes de detectar una ausencia.",
-          "margin_after_hours": "Horas que el aprendizaje sigue pausado después de volver.",
-          "learn_only_human": "Ignora los cambios de luces hechos por automatizaciones y scripts."
+          "margin_after_hours": "Horas que el aprendizaje sigue pausado después de volver."
         }
       }
     },
     "error": {
       "no_lights": "Selecciona al menos una luz.",
-      "front_not_subset": "Las luces delanteras también deben estar seleccionadas como luces de simulación."
+      "facade_not_subset": "Las luces delanteras y traseras también deben ser luces de simulación.",
+      "facade_overlap": "Una luz no puede ser delantera y trasera a la vez."
     }
   },
   "entity": {
@@ -105,6 +194,9 @@
       "min_front_lights": {
         "name": "Mínimo de luces delanteras"
       },
+      "min_rear_lights": {
+        "name": "Mínimo de luces traseras"
+      },
       "min_dwell": {
         "name": "Permanencia mínima"
       },
@@ -152,6 +244,12 @@
       },
       "learning_days": {
         "name": "Días de aprendizaje válidos"
+      },
+      "simulation_lights": {
+        "name": "Luces de simulación"
+      },
+      "learning_lights": {
+        "name": "Luces de aprendizaje"
       }
     }
   },

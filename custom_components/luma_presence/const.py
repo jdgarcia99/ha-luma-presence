@@ -6,17 +6,21 @@ from datetime import timedelta
 from typing import Final
 
 DOMAIN: Final = "luma_presence"
-VERSION: Final = "0.1.0"
 DEFAULT_NAME: Final = "LumaPresence"
 
 # Configuration (stored in the config entry options)
 CONF_LIGHTS: Final = "lights"
 CONF_FRONT_LIGHTS: Final = "front_lights"
+CONF_REAR_LIGHTS: Final = "rear_lights"
 CONF_PERSONS: Final = "persons"
 CONF_ALARM: Final = "alarm_entity"
 CONF_MARGIN_BEFORE: Final = "margin_before_hours"
 CONF_MARGIN_AFTER: Final = "margin_after_hours"
 CONF_HUMAN_ONLY: Final = "learn_only_human"
+CONF_LEARN_FLOORS: Final = "learn_floors"
+CONF_LEARN_AREAS: Final = "learn_areas"
+CONF_LEARN_EXTRA: Final = "learn_extra"
+CONF_LEARN_EXCLUDE: Final = "learn_exclude"
 
 DEFAULT_MARGIN_BEFORE: Final = 2.0
 DEFAULT_MARGIN_AFTER: Final = 2.0
@@ -61,6 +65,8 @@ COMMIT_INTERVAL: Final = timedelta(minutes=15)
 VALID_DAY_MIN_EXPOSURE_S: Final = 16 * 3600
 STORE_VERSION: Final = 1
 STORE_MAX_DAYS: Final = 400
+SCOPE_DEBOUNCE_S: Final = 5.0
+PREVIEW_MAX_ENTITIES: Final = 60
 
 # Services
 SERVICE_START: Final = "start"

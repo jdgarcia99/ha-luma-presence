@@ -26,6 +26,7 @@ class LumaSettings:
     min_lights: int = 2
     max_lights: int = 5
     min_front_lights: int = 2
+    min_rear_lights: int = 0
     min_dwell: float = 5.0
     max_dwell: float = 15.0
     stop_interval: float = 90.0
@@ -57,6 +58,7 @@ class LumaRuntime:
 
     hass: HomeAssistant
     entry_id: str
+    version: str
     config: dict[str, Any]
     settings: LumaSettings
     engine: SimulationEngine

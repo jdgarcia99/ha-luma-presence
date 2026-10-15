@@ -46,6 +46,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     CONF_FRONT_LIGHTS,
     CONF_LIGHTS,
+    CONF_REAR_LIGHTS,
     DOMAIN,
     EVENT_END,
     EVENT_START,
@@ -92,6 +93,7 @@ class SimulationEngine:
         self._entry_id = entry_id
         self._lights: list[str] = list(config.get(CONF_LIGHTS, []))
         self._front: set[str] = set(config.get(CONF_FRONT_LIGHTS, []))
+        self._rear: set[str] = set(config.get(CONF_REAR_LIGHTS, []))
         self.settings = settings
 
         self.enabled = False
@@ -338,7 +340,7 @@ class SimulationEngine:
         while True:
             try:
                 await self._async_step()
-            except Exception:  # noqa: BLE001 - keep the simulation alive
+            except Exception:  # keep the simulation alive
                 _LOGGER.exception("Unexpected error in simulation step")
             low, high = sorted((self.settings.min_dwell, self.settings.max_dwell))
             await asyncio.sleep(random.uniform(max(low, 0.5), max(high, 0.5)) * 60)
@@ -354,22 +356,31 @@ class SimulationEngine:
             return
         on = [e for e in available if states[e].state == STATE_ON]  # type: ignore[union-attr]
         off = [e for e in available if e not in on]
-        front_on = [e for e in on if e in self._front]
-        front_off = [e for e in off if e in self._front]
 
         max_on = max(settings.max_lights, 0)
         min_on = min(max(settings.min_lights, 0), max_on)
-        min_front = max(settings.min_front_lights, 0)
+        # Front first, then rear.
+        facades = (
+            (self._front, max(settings.min_front_lights, 0)),
+            (self._rear, max(settings.min_rear_lights, 0)),
+        )
 
-        # Lights that may be turned off without dropping below the front minimum.
-        removable = [
-            e for e in on if not (e in self._front and len(front_on) <= min_front)
-        ]
+        # Lights that may be turned off without dropping a facade below its minimum.
+        protected: set[str] = set()
+        facade_target: str | None = None
+        for members, minimum in facades:
+            facade_on = [e for e in on if e in members]
+            facade_off = [e for e in off if e in members]
+            if len(facade_on) <= minimum:
+                protected.update(facade_on)
+            if facade_target is None and facade_off and len(facade_on) < minimum:
+                facade_target = random.choice(facade_off)
+        removable = [e for e in on if e not in protected]
 
         target: str | None = None
         turn_on = False
-        if front_off and len(front_on) < min_front and len(on) < max_on:
-            target, turn_on = random.choice(front_off), True
+        if facade_target is not None and len(on) < max_on:
+            target, turn_on = facade_target, True
         elif len(on) > max_on:
             target = random.choice(removable or on)
         elif len(on) < min_on and off:

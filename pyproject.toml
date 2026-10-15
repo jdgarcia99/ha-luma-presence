@@ -2,3 +2,18 @@
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+
+[tool.ruff.lint]
+# Home Assistant entities declare their attributes as class-level defaults.
+ignore = ["RUF012"]
+
+[tool.ruff.lint.isort]
+# Same import layout as Home Assistant core.
+combine-as-imports = true
+force-sort-within-sections = true
+known-first-party = ["homeassistant"]
+section-order = ["future", "standard-library", "third-party", "first-party", "integration", "local-folder"]
+split-on-trailing-comma = false
+
+[tool.ruff.lint.isort.sections]
+integration = ["custom_components"]

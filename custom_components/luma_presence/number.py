@@ -27,6 +27,7 @@ NUMBERS: tuple[_NumberDef, ...] = (
     _NumberDef("min_lights", 0, 20, 1, None, True),
     _NumberDef("max_lights", 0, 20, 1, None, True),
     _NumberDef("min_front_lights", 0, 10, 1, None, True),
+    _NumberDef("min_rear_lights", 0, 10, 1, None, True),
     _NumberDef("min_dwell", 1, 120, 1, UnitOfTime.MINUTES, False),
     _NumberDef("max_dwell", 1, 120, 1, UnitOfTime.MINUTES, False),
     _NumberDef("stop_interval", 0, 600, 5, UnitOfTime.SECONDS, False),

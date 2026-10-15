@@ -6,7 +6,7 @@ from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
 
-from .const import DOMAIN, VERSION, signal_update
+from .const import DOMAIN, signal_update
 from .models import LumaConfigEntry
 
 
@@ -28,7 +28,7 @@ class LumaEntity(Entity):
             name=entry.title,
             manufacturer="jdgarcia99",
             model="LumaPresence",
-            sw_version=VERSION,
+            sw_version=self._runtime.version,
             entry_type=DeviceEntryType.SERVICE,
         )
 

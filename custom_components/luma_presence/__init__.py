@@ -10,9 +10,14 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import config_validation as cv, issue_registry as ir
+from homeassistant.helpers import (
+    config_validation as cv,
+    floor_registry as fr,
+    issue_registry as ir,
+)
 from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.loader import async_get_integration
 
 from .const import (
     ATTR_CONFIG_ENTRY_ID,
@@ -20,8 +25,13 @@ from .const import (
     ATTR_LIGHTS_BEHAVIOR,
     ATTR_START_DATE,
     CONF_ALARM,
+    CONF_LEARN_AREAS,
+    CONF_LEARN_EXCLUDE,
+    CONF_LEARN_EXTRA,
+    CONF_LEARN_FLOORS,
     CONF_LIGHTS,
     CONF_PERSONS,
+    CONF_REAR_LIGHTS,
     DOMAIN,
     SERVICE_FORGET_PERIOD,
     SERVICE_START,
@@ -102,6 +112,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool:
     """Set up LumaPresence from a config entry."""
+    integration = await async_get_integration(hass, DOMAIN)
     config = {**entry.data, **entry.options}
     settings = LumaSettings()
     engine = SimulationEngine(hass, entry.entry_id, config, settings)
@@ -110,6 +121,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
     entry.runtime_data = LumaRuntime(
         hass=hass,
         entry_id=entry.entry_id,
+        version=str(integration.version),
         config=config,
         settings=settings,
         engine=engine,
@@ -126,6 +138,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
 
     entry.async_on_unload(async_at_started(hass, _async_start))
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool:
+    """Migrate an old config entry."""
+    if entry.version > 2:
+        return False  # downgrade from a future version
+    if entry.version == 1:
+        # v0.2.0 adds the rear facade and the learning scope.
+        floors = [floor.floor_id for floor in fr.async_get(hass).async_list_floors()]
+        options = {
+            CONF_REAR_LIGHTS: [],
+            CONF_LEARN_FLOORS: floors,
+            CONF_LEARN_AREAS: [],
+            CONF_LEARN_EXTRA: [],
+            CONF_LEARN_EXCLUDE: [],
+            **entry.options,
+        }
+        hass.config_entries.async_update_entry(entry, options=options, version=2)
+        _LOGGER.info("Migrated %s to version 2", entry.title)
     return True
 
 

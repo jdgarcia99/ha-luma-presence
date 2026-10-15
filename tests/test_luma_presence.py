@@ -22,6 +22,7 @@ from custom_components.luma_presence.const import (
     CONF_MARGIN_AFTER,
     CONF_MARGIN_BEFORE,
     CONF_PERSONS,
+    CONF_REAR_LIGHTS,
     DOMAIN,
     REASON_ALARM,
     REASON_MARGIN,
@@ -54,21 +55,51 @@ async def _setup(hass: HomeAssistant) -> MockConfigEntry:
 
 
 async def test_config_flow(hass: HomeAssistant) -> None:
-    """User step validates front lights and creates the entry."""
+    """The setup steps validate the lights and facades and create the entry."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
     assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
 
-    bad = {**OPTIONS, "name": "Casa", CONF_FRONT_LIGHTS: ["light.otra"]}
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], bad)
-    assert result["errors"] == {CONF_FRONT_LIGHTS: "front_not_subset"}
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "Casa", CONF_LIGHTS: []}
+    )
+    assert result["errors"] == {CONF_LIGHTS: "no_lights"}
 
-    good = {**OPTIONS, "name": "Casa"}
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], good)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "Casa", CONF_LIGHTS: LIGHTS}
+    )
+    assert result["step_id"] == "facades"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_FRONT_LIGHTS: FRONT, CONF_REAR_LIGHTS: FRONT}
+    )
+    assert result["errors"] == {"base": "facade_overlap"}
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_FRONT_LIGHTS: FRONT, CONF_REAR_LIGHTS: ["light.hall"]}
+    )
+    assert result["step_id"] == "learning"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_HUMAN_ONLY: True}
+    )
+    assert result["step_id"] == "learning_preview"
+    assert result["description_placeholders"]["count"] == str(len(LIGHTS))
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["step_id"] == "presence"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_PERSONS: OPTIONS[CONF_PERSONS],
+            CONF_ALARM: OPTIONS[CONF_ALARM],
+            CONF_MARGIN_BEFORE: 2,
+            CONF_MARGIN_AFTER: 2,
+        },
+    )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "Casa"
     assert result["options"][CONF_LIGHTS] == LIGHTS
+    assert result["options"][CONF_REAR_LIGHTS] == ["light.hall"]
+    assert result["options"][CONF_ALARM] == OPTIONS[CONF_ALARM]
 
 
 async def test_entities_created(hass: HomeAssistant, fake_lights) -> None:
@@ -184,7 +215,8 @@ async def test_learning_gate(
     # Three hours later the event is older than the 2 h margin and is committed.
     freezer.move_to(t0 + timedelta(hours=3))
     learning._handle_tick(dt_util.utcnow())
-    assert learning._days["2026-10-15"]["events"] == [["light.hall", "on", 8 * 3600]]
+    # The fake lights have no area.
+    assert learning._days["2026-10-15"]["events"] == [["light.hall", "on", 8 * 3600, None]]
     assert learning._days["2026-10-15"]["exposure"] == [[8 * 3600, 9 * 3600]]
 
     # New event, then departure: it is discarded.

@@ -3,60 +3,149 @@
     "step": {
       "user": {
         "title": "LumaPresence",
-        "description": "Configure the lights and entities used by the presence simulation.",
+        "description": "Name this instance and choose the lights the simulation may control.",
         "data": {
           "name": "Name",
-          "lights": "Simulation lights",
+          "lights": "Simulation lights"
+        },
+        "data_description": {
+          "lights": "Lights and switches the simulation may control."
+        }
+      },
+      "facades": {
+        "title": "Facades",
+        "description": "Mark the simulation lights visible from the street (front) or from the back of the house (rear). The rest count as interior lights.",
+        "data": {
           "front_lights": "Front lights",
-          "persons": "People",
-          "alarm_entity": "Alarm panel",
-          "margin_before_hours": "Learning margin before an absence",
-          "margin_after_hours": "Learning margin after returning",
+          "rear_lights": "Rear lights"
+        },
+        "data_description": {
+          "front_lights": "Visible from the street. A minimum of them is kept on while simulating.",
+          "rear_lights": "Visible from the back of the house. A minimum of them is kept on while simulating."
+        }
+      },
+      "learning": {
+        "title": "Learning",
+        "description": "Choose where LumaPresence learns how the house is really used. Every light in these floors and areas is learned, except disabled and hidden entities and configuration or diagnostic entities such as status LEDs. Simulation lights are always learned.",
+        "data": {
+          "learn_floors": "Indoor floors",
+          "learn_areas": "Indoor areas",
+          "learn_extra": "Extra entities",
+          "learn_exclude": "Excluded entities",
           "learn_only_human": "Learn only from human actions"
         },
         "data_description": {
-          "lights": "Lights and switches the simulation may control.",
-          "front_lights": "Lights visible from the street. They must also be simulation lights.",
+          "learn_floors": "Lights in every area of these floors are learned.",
+          "learn_areas": "Indoor areas that do not belong to any of the floors above.",
+          "learn_extra": "For example relays exposed as switches, or lamps without an area.",
+          "learn_exclude": "These entities are never learned.",
+          "learn_only_human": "Ignore light changes made by automations and scripts."
+        }
+      },
+      "learning_preview": {
+        "title": "Learning preview",
+        "description": "LumaPresence will learn from **{count}** entities. Showing {shown}:\n\n{entities}"
+      },
+      "presence": {
+        "title": "People and alarm",
+        "description": "Learning pauses while the house is empty.",
+        "data": {
+          "persons": "People",
+          "alarm_entity": "Alarm panel",
+          "margin_before_hours": "Learning margin before an absence",
+          "margin_after_hours": "Learning margin after returning"
+        },
+        "data_description": {
           "persons": "When none of these people is home, the house counts as empty and learning stops.",
           "alarm_entity": "Learning stops while this alarm is armed away.",
           "margin_before_hours": "Hours of activity discarded just before an absence is detected.",
-          "margin_after_hours": "Hours learning stays paused after coming back.",
-          "learn_only_human": "Ignore light changes made by automations and scripts."
+          "margin_after_hours": "Hours learning stays paused after coming back."
         }
       }
     },
     "error": {
       "no_lights": "Select at least one light.",
-      "front_not_subset": "Front lights must also be selected as simulation lights."
+      "facade_not_subset": "Front and rear lights must also be simulation lights.",
+      "facade_overlap": "A light cannot be both a front and a rear light."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "LumaPresence",
+        "menu_options": {
+          "simulation_lights": "Simulation lights",
+          "facades": "Facades",
+          "learning": "Learning",
+          "learning_preview": "Learning preview",
+          "presence": "People and alarm",
+          "save": "Save"
+        }
+      },
+      "simulation_lights": {
+        "title": "Simulation lights",
         "data": {
-          "lights": "Simulation lights",
+          "lights": "Simulation lights"
+        },
+        "data_description": {
+          "lights": "Lights and switches the simulation may control."
+        }
+      },
+      "facades": {
+        "title": "Facades",
+        "description": "Mark the simulation lights visible from the street (front) or from the back of the house (rear). The rest count as interior lights.",
+        "data": {
           "front_lights": "Front lights",
-          "persons": "People",
-          "alarm_entity": "Alarm panel",
-          "margin_before_hours": "Learning margin before an absence",
-          "margin_after_hours": "Learning margin after returning",
+          "rear_lights": "Rear lights"
+        },
+        "data_description": {
+          "front_lights": "Visible from the street. A minimum of them is kept on while simulating.",
+          "rear_lights": "Visible from the back of the house. A minimum of them is kept on while simulating."
+        }
+      },
+      "learning": {
+        "title": "Learning",
+        "description": "Choose where LumaPresence learns how the house is really used. Every light in these floors and areas is learned, except disabled and hidden entities and configuration or diagnostic entities such as status LEDs. Simulation lights are always learned.",
+        "data": {
+          "learn_floors": "Indoor floors",
+          "learn_areas": "Indoor areas",
+          "learn_extra": "Extra entities",
+          "learn_exclude": "Excluded entities",
           "learn_only_human": "Learn only from human actions"
         },
         "data_description": {
-          "lights": "Lights and switches the simulation may control.",
-          "front_lights": "Lights visible from the street. They must also be simulation lights.",
+          "learn_floors": "Lights in every area of these floors are learned.",
+          "learn_areas": "Indoor areas that do not belong to any of the floors above.",
+          "learn_extra": "For example relays exposed as switches, or lamps without an area.",
+          "learn_exclude": "These entities are never learned.",
+          "learn_only_human": "Ignore light changes made by automations and scripts."
+        }
+      },
+      "learning_preview": {
+        "title": "Learning preview",
+        "description": "LumaPresence will learn from **{count}** entities. Showing {shown}:\n\n{entities}"
+      },
+      "presence": {
+        "title": "People and alarm",
+        "description": "Learning pauses while the house is empty.",
+        "data": {
+          "persons": "People",
+          "alarm_entity": "Alarm panel",
+          "margin_before_hours": "Learning margin before an absence",
+          "margin_after_hours": "Learning margin after returning"
+        },
+        "data_description": {
           "persons": "When none of these people is home, the house counts as empty and learning stops.",
           "alarm_entity": "Learning stops while this alarm is armed away.",
           "margin_before_hours": "Hours of activity discarded just before an absence is detected.",
-          "margin_after_hours": "Hours learning stays paused after coming back.",
-          "learn_only_human": "Ignore light changes made by automations and scripts."
+          "margin_after_hours": "Hours learning stays paused after coming back."
         }
       }
     },
     "error": {
       "no_lights": "Select at least one light.",
-      "front_not_subset": "Front lights must also be selected as simulation lights."
+      "facade_not_subset": "Front and rear lights must also be simulation lights.",
+      "facade_overlap": "A light cannot be both a front and a rear light."
     }
   },
   "entity": {
@@ -105,6 +194,9 @@
       "min_front_lights": {
         "name": "Minimum front lights on"
       },
+      "min_rear_lights": {
+        "name": "Minimum rear lights on"
+      },
       "min_dwell": {
         "name": "Minimum dwell time"
       },
@@ -152,6 +244,12 @@
       },
       "learning_days": {
         "name": "Valid learning days"
+      },
+      "simulation_lights": {
+        "name": "Simulation lights"
+      },
+      "learning_lights": {
+        "name": "Learning lights"
       }
     }
   },

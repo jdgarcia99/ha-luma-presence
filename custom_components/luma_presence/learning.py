@@ -13,6 +13,8 @@ Rules
 * Excluded time is never counted as "no activity": every stored day keeps
   the exposure intervals actually observed, so statistics are normalised
   by observed time only.
+* The learned entities come from the learning scope (see ``scope.py``) and
+  are recomputed when the entity, device, area or floor registry changes.
 """
 
 from __future__ import annotations
@@ -36,6 +38,13 @@ from homeassistant.core import (
     HomeAssistant,
     callback,
 )
+from homeassistant.helpers import (
+    area_registry as ar,
+    device_registry as dr,
+    entity_registry as er,
+    floor_registry as fr,
+)
+from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_track_point_in_utc_time,
@@ -50,7 +59,6 @@ from .const import (
     COMMIT_INTERVAL,
     CONF_ALARM,
     CONF_HUMAN_ONLY,
-    CONF_LIGHTS,
     CONF_MARGIN_AFTER,
     CONF_MARGIN_BEFORE,
     CONF_PERSONS,
@@ -64,12 +72,14 @@ from .const import (
     REASON_MARGIN,
     REASON_PAUSED,
     REASON_SIMULATION,
+    SCOPE_DEBOUNCE_S,
     STORE_MAX_DAYS,
     STORE_VERSION,
     VALID_DAY_MIN_EXPOSURE_S,
     signal_update,
 )
 from .models import LumaSettings
+from .scope import entity_area_id, resolve_learning_scope
 
 if TYPE_CHECKING:
     from .engine import SimulationEngine
@@ -77,10 +87,22 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 _PRESENCE_UNKNOWN = (STATE_UNKNOWN, STATE_UNAVAILABLE)
+_REGISTRY_EVENTS = (
+    er.EVENT_ENTITY_REGISTRY_UPDATED,
+    dr.EVENT_DEVICE_REGISTRY_UPDATED,
+    ar.EVENT_AREA_REGISTRY_UPDATED,
+    fr.EVENT_FLOOR_REGISTRY_UPDATED,
+)
 
 
 def _parse(value: str | None) -> datetime | None:
     return dt_util.parse_datetime(value) if value else None
+
+
+def parse_event(record: list[Any]) -> tuple[str, str, int, str | None]:
+    """Read a stored event: ``[entity_id, state, seconds]``, plus the area since v0.2.0."""
+    area_id = record[3] if len(record) > 3 else None
+    return record[0], record[1], record[2], area_id
 
 
 class LearningGate:
@@ -99,7 +121,9 @@ class LearningGate:
         self._entry_id = entry_id
         self._settings = settings
         self._engine = engine
-        self._lights: list[str] = list(config.get(CONF_LIGHTS, []))
+        self._config = config
+        self.entities: list[str] = []
+        self.auto_excluded: list[str] = []
         self._persons: list[str] = list(config.get(CONF_PERSONS, []))
         self._alarm: str | None = config.get(CONF_ALARM) or None
         self._margin_before = timedelta(
@@ -113,17 +137,27 @@ class LearningGate:
         self._store: Store[dict[str, Any]] = Store(
             hass, STORE_VERSION, f"{DOMAIN}.{entry_id}.learning"
         )
-        # {"YYYY-MM-DD": {"exposure": [[s, e], ...], "events": [[entity, state, s], ...]}}
+        # {"YYYY-MM-DD": {"exposure": [[s, e], ...],
+        #                 "events": [[entity, state, s, area], ...]}}
+        # Events stored before v0.2.0 have no area; read them with parse_event().
         self._days: dict[str, dict[str, list[Any]]] = {}
         self._absence_since: datetime | None = None
         self._blocked_until: datetime | None = None
         self._segment_start: datetime | None = None
-        self._pending: list[tuple[str, str, datetime]] = []
+        self._pending: list[tuple[str, str, datetime, str | None]] = []
 
         self.reasons: set[str] = set()
         self._started = False
         self._unsubs: list[CALLBACK_TYPE] = []
+        self._unsub_lights: CALLBACK_TYPE | None = None
         self._unsub_margin: CALLBACK_TYPE | None = None
+        self._scope_debouncer = Debouncer(
+            hass,
+            _LOGGER,
+            cooldown=SCOPE_DEBOUNCE_S,
+            immediate=False,
+            function=self._async_refresh_scope,
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -140,8 +174,10 @@ class LearningGate:
 
     async def async_start(self) -> None:
         """Start listening once Home Assistant is running."""
-        self._unsubs.append(
-            async_track_state_change_event(self.hass, self._lights, self._handle_light)
+        self._async_refresh_scope()
+        self._unsubs.extend(
+            self.hass.bus.async_listen(event_type, self._handle_registry_update)
+            for event_type in _REGISTRY_EVENTS
         )
         watched = [*self._persons, *([self._alarm] if self._alarm else [])]
         if watched:
@@ -162,6 +198,8 @@ class LearningGate:
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
+        self._scope_debouncer.async_shutdown()
+        self._untrack_lights()
         self._cancel_margin_timer()
         self._started = False
         await self._store.async_save(self._data_to_save())
@@ -291,7 +329,14 @@ class LearningGate:
             return
         if self._human_only and context.parent_id is not None:
             return  # triggered by an automation or script
-        self._pending.append((event.data["entity_id"], new.state, new.last_changed))
+        entity_id = event.data["entity_id"]
+        self._pending.append(
+            (entity_id, new.state, new.last_changed, entity_area_id(self.hass, entity_id))
+        )
+
+    @callback
+    def _handle_registry_update(self, _event: Event) -> None:
+        self._scope_debouncer.async_schedule_call()
 
     @callback
     def _handle_presence(self, _event: Event[EventStateChangedData]) -> None:
@@ -310,6 +355,25 @@ class LearningGate:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+    @callback
+    def _async_refresh_scope(self) -> None:
+        """Resolve the learning scope and follow its entities."""
+        scope = resolve_learning_scope(self.hass, self._config)
+        self.auto_excluded = scope.auto_excluded
+        if scope.entities != self.entities or self._unsub_lights is None:
+            self.entities = scope.entities
+            self._untrack_lights()
+            if self.entities:
+                self._unsub_lights = async_track_state_change_event(
+                    self.hass, self.entities, self._handle_light
+                )
+        self._notify()
+
+    def _untrack_lights(self) -> None:
+        if self._unsub_lights is not None:
+            self._unsub_lights()
+            self._unsub_lights = None
+
     def _everybody_away(self) -> bool:
         for person in self._persons:
             state = self.hass.states.get(person)
@@ -334,12 +398,12 @@ class LearningGate:
         if self._segment_start is None or cutoff <= self._segment_start:
             return
         self._add_exposure(self._segment_start, cutoff)
-        keep: list[tuple[str, str, datetime]] = []
-        for entity_id, state, when in self._pending:
-            if when < cutoff:
-                self._add_event(entity_id, state, when)
+        keep: list[tuple[str, str, datetime, str | None]] = []
+        for pending in self._pending:
+            if pending[2] < cutoff:
+                self._add_event(*pending)
             else:
-                keep.append((entity_id, state, when))
+                keep.append(pending)
         self._pending = keep
         self._segment_start = cutoff
         self._save()
@@ -373,11 +437,13 @@ class LearningGate:
                 exposure.append([begin_s, end_s])
             current = segment_end
 
-    def _add_event(self, entity_id: str, state: str, when: datetime) -> None:
+    def _add_event(
+        self, entity_id: str, state: str, when: datetime, area_id: str | None
+    ) -> None:
         local = dt_util.as_local(when)
         day_start = dt_util.start_of_local_day(local.date())
         seconds = int((local - day_start).total_seconds())
-        self._day(local.date())["events"].append([entity_id, state, seconds])
+        self._day(local.date())["events"].append([entity_id, state, seconds, area_id])
 
     def _data_to_save(self) -> dict[str, Any]:
         return {
