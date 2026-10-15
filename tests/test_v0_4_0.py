@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
+from itertools import pairwise
 from typing import Any
 
 from freezegun.api import FrozenDateTimeFactory
@@ -245,7 +246,7 @@ def test_jitter_keeps_order() -> None:
 
     times = [t.seconds for t in first.transitions]
     states = [t.state for t in first.transitions]
-    assert all(b - a >= 60 for a, b in zip(times, times[1:], strict=False))
+    assert all(b - a >= 60 for a, b in pairwise(times))
     assert states == [STATE_ON, STATE_OFF] * 5
     assert all(abs(t - e[0]) <= 600 + 60 * 10 for t, e in zip(times, events, strict=True))
 
