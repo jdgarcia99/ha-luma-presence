@@ -48,11 +48,13 @@ from .learning import LearningGate
 from .light_control import LightController
 from .models import LumaConfigEntry, LumaRuntime, LumaSettings, Route
 from .monitor import (
+    ROLE_REPLAY,
     ROLE_ROUTE,
     ROLE_SIMULATION,
     AvailabilityMonitor,
     async_delete_issues,
 )
+from .replay import ReplayEngine
 from .sequences import SequenceEngine
 
 _LOGGER = logging.getLogger(__name__)
@@ -168,6 +170,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
     )
     learning = LearningGate(hass, entry.entry_id, config, settings, engine)
     await learning.async_load()
+    replay = ReplayEngine(
+        hass,
+        entry.entry_id,
+        config,
+        settings,
+        controller,
+        learning,
+        on_lights=lambda lights: monitor.async_set_role_lights(ROLE_REPLAY, lights),
+    )
+    await replay.async_load()
+    engine.replay = replay
     entry.runtime_data = LumaRuntime(
         hass=hass,
         entry_id=entry.entry_id,
@@ -179,6 +192,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         sequences=sequences,
         learning=learning,
         monitor=monitor,
+        replay=replay,
     )
 
     # Entities restore their settings while the platforms are set up.
@@ -226,6 +240,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> boo
     await runtime.learning.async_shutdown()
     await runtime.controller.async_shutdown()
     await runtime.monitor.async_shutdown()
+    runtime.replay.async_shutdown()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 

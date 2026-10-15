@@ -6,7 +6,7 @@
 
 Presence simulation for Home Assistant that makes an empty house look lived in. LumaPresence switches lights on and off in a random but believable way, works alongside your alarm, and learns how your home is really used.
 
-> **Status: phase 2 (v0.3.0).** Sun and Time modes, learning data collection and night sequences. The Replay mode comes next, and the Dream mode in phase 3.
+> **Status: phase 2 complete (v0.4.0).** Sun, Time and Replay modes, learning data collection and night sequences. An optional built-in alarm integration comes next, and the Dream mode in phase 3.
 
 ## Installation (HACS)
 
@@ -47,6 +47,44 @@ The list is recomputed a few seconds after an entity, device, area or floor chan
 
 Installations upgraded from v0.1 learn from every floor that exists at upgrade time; data learned before the upgrade is kept.
 
+## Replay mode
+
+Replay reproduces a real night of your house: what the lights actually did on a recent night while the family was home.
+
+### Why learned data and not the recorder
+
+Replay does not read the recorder. It plays back what LumaPresence has [learned](#learning): only nights when the house was occupied, only human actions (no automations, no previous simulations), stored per day in LumaPresence's own storage. So it never replays an empty house or a past simulation, and it does not depend on how many days the recorder keeps (`purge_keep_days`).
+
+### Window and source night
+
+Replay uses the same window as Sun mode: from sunset (plus the random start delay, if on) until the end time (or the late end time), and never after sunrise. Night sequences keep working in every mode.
+
+A night runs from 12:00 to 12:00 the next day, so it spans two learned days, and events are matched by clock time: a light switched on at 21:14 on the source night is switched on at about 21:14 tonight. At each window start Replay picks the source night, preferring:
+
+1. the same weekday within the last 14 days;
+2. the same type of night (Monday–Thursday, or Friday–Sunday) within the last 28 days;
+3. the most recent eligible night.
+
+A night is eligible when LumaPresence observed at least 80 % of tonight's window on it, it has at least *Minimum events for Replay* events (4 by default) inside the window, and it was not last night's source (unless it is the only eligible one). Among equally good nights, the most recent wins.
+
+If no night is eligible, Replay runs that night exactly like **Sun mode** and says why; it tries again the next night.
+
+### Lights
+
+With *Replay by room* (on by default), each event is played in its room: if the room has simulation lights, it goes to one of them (front first, then rear, then interior, in configuration order); if the room has none, or its room is unknown, it is played on the original light. When several lights of a room map to the same simulation light, that light stays on while any of them was on. With *Replay by room* off, every event is played on exactly the same light.
+
+Events for lights that are unavailable, disabled or no longer learned are skipped.
+
+### Playback
+
+- Every change is shifted by a random amount of up to *Replay time variation* minutes (10 by default), keeping each light's order, at least a minute apart.
+- At the window start, each light is set to the state it had at that time on the source night.
+- Replay is faithful: the minimum, maximum and facade limits are not applied. The [ownership rule](#ownership-rule) still applies, and a light in use by a night route gets its Replay state once the route releases it.
+- The window end works as in the other modes: lights the simulation turned on are switched off gradually.
+- After a restart during the night, Replay rebuilds the same timeline and continues.
+
+`sensor.luma_presence_replay_source` shows the source night (its start date) and, as attributes, the `reason` it was chosen (`same_weekday`, `same_day_type`, `most_recent`) or the reason for falling back (`fallback_no_data`, `fallback_not_enough_events`, `fallback_not_enough_exposure`), the number of `events` inside the window, the number of `eligible_nights` and `by_room`.
+
 ## Night sequences
 
 During the night, every now and then, someone seems to get up, walk to the bathroom and go back to bed. Each walk follows a **route**.
@@ -85,10 +123,11 @@ To try a route at home, press **Test sequence** (`button.luma_presence_test_sequ
 ## Entities
 
 - `switch.luma_presence_simulation`: master switch. Its state is restored after a restart, and the simulation resumes if it is inside its window.
-- `select.luma_presence_mode`: **Sun** (starts at sunset) or **Time** (starts at a fixed time).
+- `select.luma_presence_mode`: **Sun** (starts at sunset), **Time** (starts at a fixed time) or [**Replay**](#replay-mode) (reproduces a real night).
 - `select.luma_presence_stop_behavior`: what to do with the lights the simulation turned on when it is stopped manually: keep them on, turn them off at once, turn them off gradually, or keep them on only at night.
 - Settings: minimum and maximum lights on, minimum front and rear lights on, dwell times, switch-off interval, start, end and late end times, late arrival, and random start and end delays.
-- Sensors: status, next event, last action, simulating, learning, and valid learning days.
+- Replay settings: `switch.luma_presence_replay_by_room`, `number.luma_presence_replay_jitter` and `number.luma_presence_replay_min_events`.
+- Sensors: status, next event, last action, simulating, learning, valid learning days and Replay source. The last action includes `mode: replay`, and the original light when it differs, for Replay actions.
 - Diagnostic sensors, to see from the device page which lights take part:
   - `sensor.luma_presence_simulation_lights`: number of simulation lights, with the `front`, `rear` and `interior` lists as attributes.
   - `sensor.luma_presence_learning_lights`: number of learned entities, with the `entities` list and the `auto_excluded` mapping as attributes. `auto_excluded` gives, for each indoor light left out automatically, the reason: `disabled`, `hidden`, `entity_category` or `indicator_led`.
@@ -110,7 +149,7 @@ Turning the simulation on while someone is at home is treated as a **test**, not
 
 ## Unavailable lights
 
-LumaPresence watches every simulation light and every route light. When one stays `unavailable` or `unknown` for *Alert if a light is unavailable for (minutes)* (60 by default, in the **Monitoring** section of **Configure**; 0 turns it off), it raises a Repairs issue for that light, saying since when and what it is used for, and fires the `luma_presence_light_unavailable` event. As soon as the light reports any other state, the issue disappears and `luma_presence_light_available` is fired. After a restart, the clock starts again at startup.
+LumaPresence watches every simulation light, every route light, and the lights Replay uses tonight. When one stays `unavailable` or `unknown` for *Alert if a light is unavailable for (minutes)* (60 by default, in the **Monitoring** section of **Configure**; 0 turns it off), it raises a Repairs issue for that light, saying since when and what it is used for, and fires the `luma_presence_light_unavailable` event. As soon as the light reports any other state, the issue disappears and `luma_presence_light_available` is fired. After a restart, the clock starts again at startup.
 
 Both events carry `entry_id`, `entity_id`, `since` and `roles`, so one automation can notify you about any light:
 
@@ -141,8 +180,8 @@ The user interface is available in English and Spanish. Contributions for other 
 
 ## Roadmap
 
-- **Phase 2**: night sequences (v0.3.0), then Replay mode (replays your real usage from previous days).
-- **After Replay (optional)**: alarm integration, configurable from LumaPresence: arming the alarm in away mode turns the simulation on, and disarming it stops the simulation.
+- **Phase 2** (done): night sequences (v0.3.0) and Replay mode (v0.4.0).
+- **Next (optional)**: built-in alarm integration, configurable from LumaPresence: arming the alarm in away mode turns the simulation on, and disarming it stops the simulation.
 - **Phase 3**: Dream mode (new, believable patterns generated from what has been learned, with optional AI), repairs and diagnostics.
 
 ## Development

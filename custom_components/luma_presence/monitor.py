@@ -35,7 +35,12 @@ _LOGGER = logging.getLogger(__name__)
 _UNAVAILABLE = (STATE_UNAVAILABLE, STATE_UNKNOWN)
 ROLE_SIMULATION = "simulation"
 ROLE_ROUTE = "route"
-_DEFAULT_LABELS = {ROLE_SIMULATION: "simulation light", ROLE_ROUTE: "route"}
+ROLE_REPLAY = "replay"
+_DEFAULT_LABELS = {
+    ROLE_SIMULATION: "simulation light",
+    ROLE_ROUTE: "route",
+    ROLE_REPLAY: "replay",
+}
 
 
 def issue_prefix(entry_id: str) -> str:
@@ -71,8 +76,8 @@ class AvailabilityMonitor:
     ) -> None:
         """Initialize the monitor.
 
-        `roles` maps each light to its roles: (ROLE_SIMULATION, None) or
-        (ROLE_ROUTE, route name).
+        `roles` maps each light to its roles: (ROLE_SIMULATION, None),
+        (ROLE_ROUTE, route name) or (ROLE_REPLAY, None).
         """
         self.hass = hass
         self._entry_id = entry_id
@@ -83,6 +88,7 @@ class AvailabilityMonitor:
         self._timers: dict[str, CALLBACK_TYPE] = {}
         self._raised: set[str] = set()
         self._unsub_state: CALLBACK_TYPE | None = None
+        self._started = False
 
     @property
     def enabled(self) -> bool:
@@ -96,7 +102,7 @@ class AvailabilityMonitor:
 
     async def async_start(self) -> None:
         """Start watching the lights once Home Assistant is running."""
-        if not self.enabled or not self._roles:
+        if not self.enabled:
             async_delete_issues(self.hass, self._entry_id)
             return
         await self._async_load_labels()
@@ -113,12 +119,37 @@ class AvailabilityMonitor:
                     self._raised.add(entity_id)
                 self._start_clock(entity_id, now)
         async_delete_issues(self.hass, self._entry_id, keep=unavailable)
-        self._unsub_state = async_track_state_change_event(
-            self.hass, list(self._roles), self._handle_state
-        )
+        self._started = True
+        self._track()
+
+    @callback
+    def async_set_role_lights(self, role: str, lights: list[str]) -> None:
+        """Replace the lights that have a role without a name (e.g. Replay)."""
+        for entity_id in list(self._roles):
+            kept = [item for item in self._roles[entity_id] if item[0] != role]
+            if kept:
+                self._roles[entity_id] = kept
+            else:
+                del self._roles[entity_id]
+                self._forget(entity_id)
+        for entity_id in lights:
+            self._roles.setdefault(entity_id, []).append((role, None))
+        if not self._started:
+            return
+        now = dt_util.utcnow()
+        for entity_id in lights:
+            state = self.hass.states.get(entity_id)
+            if (
+                entity_id not in self._since
+                and state is not None
+                and state.state in _UNAVAILABLE
+            ):
+                self._start_clock(entity_id, now)
+        self._track()
 
     async def async_shutdown(self) -> None:
         """Stop watching; issues stay until the light is back."""
+        self._started = False
         if self._unsub_state is not None:
             self._unsub_state()
             self._unsub_state = None
@@ -137,6 +168,28 @@ class AvailabilityMonitor:
             key = f"component.{DOMAIN}.selector.light_role.options.{role}"
             if label := translations.get(key):
                 self._labels[role] = label
+
+    @callback
+    def _track(self) -> None:
+        if self._unsub_state is not None:
+            self._unsub_state()
+            self._unsub_state = None
+        if self._roles:
+            self._unsub_state = async_track_state_change_event(
+                self.hass, list(self._roles), self._handle_state
+            )
+
+    @callback
+    def _forget(self, entity_id: str) -> None:
+        """Stop watching a light that no longer has any role."""
+        if unsub := self._timers.pop(entity_id, None):
+            unsub()
+        self._since.pop(entity_id, None)
+        if entity_id in self._raised:
+            self._raised.discard(entity_id)
+            ir.async_delete_issue(
+                self.hass, DOMAIN, issue_prefix(self._entry_id) + entity_id
+            )
 
     def _roles_text(self, entity_id: str) -> str:
         parts = []
@@ -167,7 +220,7 @@ class AvailabilityMonitor:
     def _handle_state(self, event: Event[EventStateChangedData]) -> None:
         entity_id = event.data["entity_id"]
         new = event.data["new_state"]
-        if new is None:
+        if new is None or entity_id not in self._roles:
             return  # removed: reported by the missing entities issue
         if new.state in _UNAVAILABLE:
             if entity_id not in self._since:
@@ -196,7 +249,8 @@ class AvailabilityMonitor:
         self._timers.pop(entity_id, None)
         state = self.hass.states.get(entity_id)
         if (
-            state is None
+            entity_id not in self._roles
+            or state is None
             or state.state not in _UNAVAILABLE
             or entity_id not in self._since
             or entity_id in self._raised

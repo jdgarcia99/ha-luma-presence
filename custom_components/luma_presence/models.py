@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from .learning import LearningGate
     from .light_control import LightController
     from .monitor import AvailabilityMonitor
+    from .replay import ReplayEngine
     from .sequences import SequenceEngine
 
 
@@ -52,6 +53,9 @@ class LumaSettings:
     sequence_start_time: time = time(0, 45)
     sequence_min_interval: int = 45
     sequence_max_interval: int = 90
+    replay_by_room: bool = True
+    replay_jitter: int = 10
+    replay_min_events: int = 4
 
 
 SCHEDULE_SETTINGS = frozenset(
@@ -118,6 +122,7 @@ class LumaRuntime:
     sequences: SequenceEngine
     learning: LearningGate
     monitor: AvailabilityMonitor
+    replay: ReplayEngine
 
     async def async_setting_changed(self, key: str) -> None:
         """React to a setting changed from one of the config entities."""

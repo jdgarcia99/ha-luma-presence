@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -14,7 +14,13 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import CONF_FRONT_LIGHTS, CONF_LIGHTS, CONF_REAR_LIGHTS, STATUSES
+from .const import (
+    CONF_FRONT_LIGHTS,
+    CONF_LIGHTS,
+    CONF_REAR_LIGHTS,
+    MODE_REPLAY,
+    STATUSES,
+)
 from .entity import LumaEntity
 from .models import LumaConfigEntry
 
@@ -30,6 +36,7 @@ async def async_setup_entry(
             StatusSensor(entry),
             NextEventSensor(entry),
             NextSequenceSensor(entry),
+            ReplaySourceSensor(entry),
             LastActionSensor(entry),
             LearningDaysSensor(entry),
             SimulationLightsSensor(entry),
@@ -92,6 +99,39 @@ class NextSequenceSensor(LumaEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the names of the configured routes."""
         return {"routes": [route.name for route in self._runtime.sequences.routes]}
+
+
+class ReplaySourceSensor(LumaEntity, SensorEntity):
+    """Night that Replay reproduces tonight."""
+
+    _attr_device_class = SensorDeviceClass.DATE
+    _attr_icon = "mdi:history"
+
+    def __init__(self, entry: LumaConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(entry, "replay_source", "sensor")
+
+    def _status(self) -> dict[str, Any] | None:
+        if self._runtime.settings.mode != MODE_REPLAY:
+            return None
+        return self._runtime.replay.status
+
+    @property
+    def native_value(self) -> date | None:
+        """Return the start date of the source night."""
+        status = self._status()
+        return status["source"] if status else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return why this night was chosen, or why Replay fell back."""
+        status = self._status() or {}
+        return {
+            "reason": status.get("reason"),
+            "events": status.get("events", 0),
+            "eligible_nights": status.get("eligible_nights", 0),
+            "by_room": self._runtime.settings.replay_by_room,
+        }
 
 
 class LastActionSensor(LumaEntity, SensorEntity):

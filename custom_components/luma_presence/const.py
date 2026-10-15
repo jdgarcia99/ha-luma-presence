@@ -62,10 +62,31 @@ STEP_DESTINATION: Final = "destination"
 STEP_DWELL: Final = "dwell"
 STEP_RETURN: Final = "return"
 
-# Simulation modes (Replay and Dream arrive in later phases)
+# Simulation modes (Dream arrives in a later phase)
 MODE_SUN: Final = "sun"
 MODE_TIME: Final = "time"
-MODES: Final = [MODE_SUN, MODE_TIME]
+MODE_REPLAY: Final = "replay"
+MODES: Final = [MODE_SUN, MODE_TIME, MODE_REPLAY]
+
+# Why Replay picked its source night, or why it fell back to Sun mode
+REPLAY_SAME_WEEKDAY: Final = "same_weekday"
+REPLAY_SAME_DAY_TYPE: Final = "same_day_type"
+REPLAY_MOST_RECENT: Final = "most_recent"
+REPLAY_NO_DATA: Final = "fallback_no_data"
+REPLAY_NOT_ENOUGH_EVENTS: Final = "fallback_not_enough_events"
+REPLAY_NOT_ENOUGH_EXPOSURE: Final = "fallback_not_enough_exposure"
+REPLAY_REASONS: Final = [
+    REPLAY_SAME_WEEKDAY,
+    REPLAY_SAME_DAY_TYPE,
+    REPLAY_MOST_RECENT,
+    REPLAY_NO_DATA,
+    REPLAY_NOT_ENOUGH_EVENTS,
+    REPLAY_NOT_ENOUGH_EXPOSURE,
+]
+REPLAY_MIN_COVERAGE: Final = 0.8
+REPLAY_SAME_WEEKDAY_DAYS: Final = 14
+REPLAY_SAME_DAY_TYPE_DAYS: Final = 28
+REPLAY_MIN_GAP_S: Final = 60
 
 # What to do with the lights the simulation turned on when it is stopped
 STOP_KEEP_ON: Final = "keep_on"

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter, deque
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 import logging
 import random
 from typing import Any
@@ -69,6 +69,7 @@ class LightController:
         self._own_ids: deque[str] = deque(maxlen=OWN_CONTEXT_MAXLEN)
         self._own_set: set[str] = set()
         self._locks: Counter[str] = Counter()
+        self._unlock_listeners: list[Callable[[list[str]], None]] = []
         self._unsub_state: CALLBACK_TYPE | None = None
         # Same storage key as v0.2, when the engine kept the owned lights.
         self._store: Store[dict[str, Any]] = Store(
@@ -146,8 +147,26 @@ class LightController:
     @callback
     def unlock(self, entities: Iterable[str]) -> None:
         """Release lights reserved by lock()."""
+        entities = list(entities)
         self._locks.subtract(entities)
         self._locks = +self._locks  # drop counts that reached zero
+        if released := [e for e in dict.fromkeys(entities) if not self.is_locked(e)]:
+            for listener in list(self._unlock_listeners):
+                listener(released)
+
+    @callback
+    def add_unlock_listener(
+        self, listener: Callable[[list[str]], None]
+    ) -> CALLBACK_TYPE:
+        """Call `listener` with the lights released by unlock()."""
+        self._unlock_listeners.append(listener)
+
+        @callback
+        def _remove() -> None:
+            if listener in self._unlock_listeners:
+                self._unlock_listeners.remove(listener)
+
+        return _remove
 
     def is_locked(self, entity_id: str) -> bool:
         """Return True while a running route reserves a light."""

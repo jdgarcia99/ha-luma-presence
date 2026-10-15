@@ -33,6 +33,8 @@ NUMBERS: tuple[_NumberDef, ...] = (
     _NumberDef("stop_interval", 0, 600, 5, UnitOfTime.SECONDS, False),
     _NumberDef("sequence_min_interval", 5, 360, 5, UnitOfTime.MINUTES, True),
     _NumberDef("sequence_max_interval", 5, 360, 5, UnitOfTime.MINUTES, True),
+    _NumberDef("replay_jitter", 0, 30, 1, UnitOfTime.MINUTES, True),
+    _NumberDef("replay_min_events", 0, 50, 1, None, True),
 )
 
 

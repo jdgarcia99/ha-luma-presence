@@ -20,6 +20,7 @@ SETTING_SWITCHES: tuple[tuple[str, EntityCategory | None, str | None], ...] = (
     ("delayed_end", EntityCategory.CONFIG, None),
     ("learning_paused", None, None),
     ("sequences", EntityCategory.CONFIG, "sequences_enabled"),
+    ("replay_by_room", EntityCategory.CONFIG, None),
 )
 
 

@@ -248,6 +248,9 @@
       },
       "sequences": {
         "name": "Secuencias nocturnas"
+      },
+      "replay_by_room": {
+        "name": "Replay por estancias"
       }
     },
     "select": {
@@ -255,7 +258,8 @@
         "name": "Modo",
         "state": {
           "sun": "Sol",
-          "time": "Horario"
+          "time": "Horario",
+          "replay": "Replay"
         }
       },
       "stop_behavior": {
@@ -295,6 +299,12 @@
       },
       "sequence_max_interval": {
         "name": "Intervalo máximo entre secuencias"
+      },
+      "replay_jitter": {
+        "name": "Variación horaria de Replay"
+      },
+      "replay_min_events": {
+        "name": "Eventos mínimos para Replay"
       }
     },
     "time": {
@@ -362,6 +372,31 @@
       },
       "next_sequence": {
         "name": "Próxima secuencia"
+      },
+      "replay_source": {
+        "name": "Origen de Replay",
+        "state_attributes": {
+          "reason": {
+            "name": "Motivo",
+            "state": {
+              "same_weekday": "Mismo día de la semana",
+              "same_day_type": "Mismo tipo de día",
+              "most_recent": "Noche más reciente",
+              "fallback_no_data": "Modo Sol: no hay noches aprendidas",
+              "fallback_not_enough_events": "Modo Sol: no hay suficientes eventos",
+              "fallback_not_enough_exposure": "Modo Sol: no hay suficiente tiempo observado"
+            }
+          },
+          "events": {
+            "name": "Eventos"
+          },
+          "eligible_nights": {
+            "name": "Noches elegibles"
+          },
+          "by_room": {
+            "name": "Por estancias"
+          }
+        }
       }
     }
   },
@@ -377,7 +412,8 @@
     "light_role": {
       "options": {
         "simulation": "luz de simulación",
-        "route": "recorrido"
+        "route": "recorrido",
+        "replay": "Replay"
       }
     }
   },

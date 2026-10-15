@@ -7,7 +7,7 @@ from collections.abc import Callable
 from datetime import date, datetime, timedelta
 import logging
 import random
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import STATE_OFF, STATE_ON, SUN_EVENT_SUNRISE, SUN_EVENT_SUNSET
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
@@ -29,6 +29,7 @@ from .const import (
     EVENT_START,
     MAX_END_JITTER_MIN,
     MAX_START_JITTER_MIN,
+    MODE_REPLAY,
     MODE_SUN,
     OWNER_SIMULATION,
     STATUS_IDLE,
@@ -43,6 +44,9 @@ from .const import (
 )
 from .light_control import LightController
 from .models import LumaSettings
+
+if TYPE_CHECKING:
+    from .replay import ReplayEngine
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -71,6 +75,8 @@ class SimulationEngine:
         self._rear: set[str] = set(config.get(CONF_REAR_LIGHTS, []))
         self.settings = settings
         self.controller = controller
+        # Set once the learning gate exists; plays Replay nights.
+        self.replay: ReplayEngine | None = None
 
         self.enabled = False
         self.next_event: datetime | None = None
@@ -78,6 +84,7 @@ class SimulationEngine:
 
         self._started = False
         self._sim_task: asyncio.Task[None] | None = None
+        self._sim_mode: str | None = None
         self._stop_task: asyncio.Task[None] | None = None
         self._unsub_timer: CALLBACK_TYPE | None = None
         self._jitter: dict[date, tuple[float, float]] = {}
@@ -187,8 +194,12 @@ class SimulationEngine:
         now = dt_util.utcnow()
         self._prune_jitter()
         if (window := self._current_window(now)) is not None:
+            if self._sim_task is not None and self._sim_mode != self.settings.mode:
+                # The mode changed inside the window: restart with the new one.
+                self._sim_task.cancel()
+                self._sim_task = None
             if self._sim_task is None:
-                self._start_simulation()
+                self._start_simulation(window)
             self._schedule(window[1], EVENT_END)
         else:
             if self._sim_task is not None:
@@ -245,7 +256,7 @@ class SimulationEngine:
         """Return the (start, end) UTC window that starts on a local date."""
         settings = self.settings
         tz = dt_util.get_default_time_zone()
-        if settings.mode == MODE_SUN:
+        if settings.mode in (MODE_SUN, MODE_REPLAY):
             start = get_astral_event_date(self.hass, SUN_EVENT_SUNSET, day)
             if start is None:
                 return None
@@ -292,16 +303,29 @@ class SimulationEngine:
     # Simulation
     # ------------------------------------------------------------------
     @callback
-    def _start_simulation(self) -> None:
+    def _start_simulation(self, window: tuple[datetime, datetime]) -> None:
         if self._stop_task is not None:
             self._stop_task.cancel()
             self._stop_task = None
-        self.controller.record(None, "simulation_started")
+        self.controller.record(None, "simulation_started", mode=self.settings.mode)
+        self._sim_mode = self.settings.mode
         self._sim_task = self.hass.async_create_background_task(
-            self._async_simulation_loop(),
+            self._async_run(window),
             f"{DOMAIN}_simulation_{self._entry_id}",
             eager_start=False,
         )
+
+    async def _async_run(self, window: tuple[datetime, datetime]) -> None:
+        if (
+            self.settings.mode == MODE_REPLAY
+            and self.replay is not None
+            and (plan := await self.replay.async_plan(window)) is not None
+        ):
+            await self.replay.async_play(plan)
+            return
+        # Other modes, or Replay without a usable source night: random loop
+        # (with the Replay window, that is exactly Sun mode).
+        await self._async_simulation_loop()
 
     async def _async_simulation_loop(self) -> None:
         while True:

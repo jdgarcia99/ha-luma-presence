@@ -217,6 +217,11 @@ class LearningGate:
         return self._segment_start is not None
 
     @property
+    def days(self) -> dict[str, dict[str, list[Any]]]:
+        """Learned days: {"YYYY-MM-DD": {"exposure": [...], "events": [...]}}."""
+        return self._days
+
+    @property
     def blocked_until(self) -> datetime | None:
         """End of the current return margin, if any."""
         return self._blocked_until

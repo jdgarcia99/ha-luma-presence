@@ -248,6 +248,9 @@
       },
       "sequences": {
         "name": "Night sequences"
+      },
+      "replay_by_room": {
+        "name": "Replay by room"
       }
     },
     "select": {
@@ -255,7 +258,8 @@
         "name": "Mode",
         "state": {
           "sun": "Sun",
-          "time": "Time"
+          "time": "Time",
+          "replay": "Replay"
         }
       },
       "stop_behavior": {
@@ -295,6 +299,12 @@
       },
       "sequence_max_interval": {
         "name": "Maximum interval between sequences"
+      },
+      "replay_jitter": {
+        "name": "Replay time variation"
+      },
+      "replay_min_events": {
+        "name": "Minimum events for Replay"
       }
     },
     "time": {
@@ -362,6 +372,31 @@
       },
       "next_sequence": {
         "name": "Next sequence"
+      },
+      "replay_source": {
+        "name": "Replay source",
+        "state_attributes": {
+          "reason": {
+            "name": "Reason",
+            "state": {
+              "same_weekday": "Same weekday",
+              "same_day_type": "Same type of day",
+              "most_recent": "Most recent night",
+              "fallback_no_data": "Sun mode: no learned nights",
+              "fallback_not_enough_events": "Sun mode: not enough events",
+              "fallback_not_enough_exposure": "Sun mode: not enough observed time"
+            }
+          },
+          "events": {
+            "name": "Events"
+          },
+          "eligible_nights": {
+            "name": "Eligible nights"
+          },
+          "by_room": {
+            "name": "By room"
+          }
+        }
       }
     }
   },
@@ -377,7 +412,8 @@
     "light_role": {
       "options": {
         "simulation": "simulation light",
-        "route": "route"
+        "route": "route",
+        "replay": "replay"
       }
     }
   },
