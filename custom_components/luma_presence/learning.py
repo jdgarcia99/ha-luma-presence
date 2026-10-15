@@ -60,14 +60,10 @@ from .const import (
     ABSENCE_REASONS,
     COMMIT_INTERVAL,
     CONF_ALARM,
-    CONF_ALARM_ACTIVATE_STATES,
-    CONF_ALARM_CONTROL,
     CONF_HUMAN_ONLY,
     CONF_MARGIN_AFTER,
     CONF_MARGIN_BEFORE,
     CONF_PERSONS,
-    DEFAULT_ALARM_ACTIVATE_STATES,
-    DEFAULT_ALARM_CONTROL,
     DEFAULT_HUMAN_ONLY,
     DEFAULT_MARGIN_AFTER,
     DEFAULT_MARGIN_BEFORE,
@@ -135,12 +131,6 @@ class LearningGate:
         self.auto_excluded: dict[str, str] = {}
         self._persons: list[str] = list(config.get(CONF_PERSONS, []))
         self._alarm: str | None = config.get(CONF_ALARM) or None
-        # With alarm control, armed vacation is an absence too.
-        self._vacation = bool(
-            config.get(CONF_ALARM_CONTROL, DEFAULT_ALARM_CONTROL)
-        ) and AlarmControlPanelState.ARMED_VACATION in config.get(
-            CONF_ALARM_ACTIVATE_STATES, DEFAULT_ALARM_ACTIVATE_STATES
-        )
         self._margin_before = timedelta(
             hours=float(config.get(CONF_MARGIN_BEFORE, DEFAULT_MARGIN_BEFORE))
         )
@@ -290,11 +280,8 @@ class LearningGate:
         alarm = self.hass.states.get(self._alarm) if self._alarm else None
         if alarm is not None and alarm.state == AlarmControlPanelState.ARMED_AWAY:
             reasons.add(REASON_ALARM)
-        if (
-            self._vacation
-            and alarm is not None
-            and alarm.state == AlarmControlPanelState.ARMED_VACATION
-        ):
+        # Armed vacation always means an empty house, with or without alarm control.
+        if alarm is not None and alarm.state == AlarmControlPanelState.ARMED_VACATION:
             reasons.add(REASON_ALARM_VACATION)
         if self._persons and self._everybody_away():
             reasons.add(REASON_AWAY)

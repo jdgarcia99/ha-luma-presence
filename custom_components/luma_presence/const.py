@@ -138,7 +138,7 @@ OWN_CONTEXT_MAXLEN: Final = 1000
 # Learning gate
 REASON_SIMULATION: Final = "simulation_enabled"
 REASON_ALARM: Final = "alarm_armed_away"
-# Only with alarm control on and armed_vacation among its activating states.
+# Armed vacation always means an empty house.
 REASON_ALARM_VACATION: Final = "alarm_armed_vacation"
 REASON_AWAY: Final = "nobody_home"
 REASON_PAUSED: Final = "paused"

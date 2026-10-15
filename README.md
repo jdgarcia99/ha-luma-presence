@@ -57,7 +57,6 @@ LumaPresence can follow your alarm panel by itself, with no automations: arming 
 - Changes coming from `unavailable` or `unknown` are ignored, so a panel reconnecting never starts or stops the simulation.
 - **Manual override:** if you turn the simulation off by hand (or with a service or an automation) while the alarm is armed, it stays off until the alarm is disarmed (or set to a state you did not pick) and armed again.
 - **After a restart**, LumaPresence reconciles what happened while Home Assistant was down: if the alarm is armed and the simulation is off (and you did not turn it off by hand during this arming), it turns on; if the alarm is disarmed and the simulation was turned on by the alarm, it turns off. A simulation you turned on by hand stays on, and nothing happens while the panel is unavailable.
-- With *armed vacation* among the chosen states, learning also treats armed vacation as an absence (`alarm_armed_vacation` in `paused_reasons`).
 
 It can replace your own arm/disarm automations, or coexist with them: turning the master switch on when it is already on, or off when it is already off, does nothing.
 
@@ -96,7 +95,7 @@ Events for lights that are unavailable, disabled or no longer learned are skippe
 - Every change is shifted by a random amount of up to *Replay time variation* minutes (10 by default), keeping each light's order, at least a minute apart.
 - At the window start, each light is set to the state it had at that time on the source night.
 - Replay is faithful: the minimum, maximum and facade limits are not applied. A light in use by a night route gets its Replay state once the route releases it.
-- During a real absence (the alarm is armed away or nobody is home), Replay switches off any light of its timeline when the source night did, even if the simulation did not switch it on: a light left on when leaving follows the source night, as in Sun and Time modes. Without a real absence, for example in a test with people at home, the [ownership rule](#ownership-rule) applies: Replay only switches off the lights the simulation switched on.
+- During a real absence (the alarm is armed away or armed vacation, or nobody is home), Replay switches off any light of its timeline when the source night did, even if the simulation did not switch it on: a light left on when leaving follows the source night, as in Sun and Time modes. Without a real absence, for example in a test with people at home, the [ownership rule](#ownership-rule) applies: Replay only switches off the lights the simulation switched on.
 - The window end works as in the other modes: lights the simulation turned on are switched off gradually.
 - After a restart during the night, Replay rebuilds the same timeline and continues.
 
@@ -160,7 +159,7 @@ LumaPresence only turns off lights that it turned on itself and that nobody has 
 
 From day one, LumaPresence stores real usage of the lights in its [learning scope](#learning-scope) in `.storage`, per day and only while the house is occupied, so it does not depend on the recorder's retention.
 
-Learning pauses while the simulation is enabled, the alarm is armed away (or armed vacation, with [alarm control](#alarm-control)), nobody is home, or it has been paused manually. Excluded days never count as days without activity: statistics are based only on observed time. After an absence longer than 48 hours, the whole day of the return is excluded.
+Learning pauses while the simulation is enabled, the alarm is armed away or armed vacation (`alarm_armed_away` / `alarm_armed_vacation` in `paused_reasons`, with or without [alarm control](#alarm-control)), nobody is home, or it has been paused manually. Excluded days never count as days without activity: statistics are based only on observed time. After an absence longer than 48 hours, the whole day of the return is excluded.
 
 Turning the simulation on while someone is at home is treated as a **test**, not an absence (`simulation_test` in the `paused_reasons` attribute of `binary_sensor.luma_presence_learning_active`): what was observed until then is kept, and learning starts again as soon as the test ends, with no return margin. If everybody leaves or the alarm is armed away during the test, the normal absence rules apply from that moment. Without people configured, the simulation always counts as an absence. Light changes made by LumaPresence itself are never learned.
 

@@ -268,13 +268,22 @@ async def test_startup_respects_override(
 # ----------------------------------------------------------------------
 # Learning and options
 # ----------------------------------------------------------------------
+@pytest.mark.parametrize("control", [True, False])
 async def test_vacation_is_an_absence(
-    hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory
+    hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory, control: bool
 ) -> None:
-    """With alarm control, armed vacation closes learning as an absence."""
-    entry = await _setup(hass, freezer, CONTROL)
+    """Armed vacation always closes learning and is a real absence for Replay."""
+    entry = await _setup(hass, freezer, {CONF_ALARM_CONTROL: control})
+    runtime = entry.runtime_data
+    assert runtime.learning.is_open
+    assert not runtime.replay._real_absence()
+
     await _alarm(hass, "armed_vacation")
-    assert REASON_ALARM_VACATION in entry.runtime_data.learning.reasons
+    assert REASON_ALARM_VACATION in runtime.learning.reasons
+    assert not runtime.learning.is_open
+    assert runtime.replay._real_absence()
+    # The simulation follows the alarm only with alarm control.
+    assert _state(hass).state == (STATE_ON if control else STATE_OFF)
 
 
 async def test_presence_validation(
