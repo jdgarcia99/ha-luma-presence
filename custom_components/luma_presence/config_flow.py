@@ -3,6 +3,8 @@
 The initial setup walks through the steps in sequence. The options flow
 shows them as a menu: every step edits a working copy of the options and
 returns to the menu, and only Save writes the entry.
+
+Night routes are config subentries, added from the integration page.
 """
 
 from __future__ import annotations
@@ -16,7 +18,9 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
+    ConfigSubentryFlow,
     OptionsFlow,
+    SubentryFlowResult,
 )
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant, callback
@@ -41,6 +45,9 @@ from homeassistant.helpers.selector import (
 
 from .const import (
     CONF_ALARM,
+    CONF_DESTINATION,
+    CONF_DWELL_MAX,
+    CONF_DWELL_MIN,
     CONF_FRONT_LIGHTS,
     CONF_HUMAN_ONLY,
     CONF_LEARN_AREAS,
@@ -50,14 +57,23 @@ from .const import (
     CONF_LIGHTS,
     CONF_MARGIN_AFTER,
     CONF_MARGIN_BEFORE,
+    CONF_ORIGIN,
+    CONF_PATH,
     CONF_PERSONS,
     CONF_REAR_LIGHTS,
+    CONF_STEP_DELAY_MAX,
+    CONF_STEP_DELAY_MIN,
+    DEFAULT_DWELL_MAX,
+    DEFAULT_DWELL_MIN,
     DEFAULT_HUMAN_ONLY,
     DEFAULT_MARGIN_AFTER,
     DEFAULT_MARGIN_BEFORE,
     DEFAULT_NAME,
+    DEFAULT_STEP_DELAY_MAX,
+    DEFAULT_STEP_DELAY_MIN,
     DOMAIN,
     PREVIEW_MAX_ENTITIES,
+    SUBENTRY_ROUTE,
 )
 from .scope import entity_area_id, resolve_learning_entities
 
@@ -66,6 +82,7 @@ STEP_FACADES = "facades"
 STEP_LEARNING = "learning"
 STEP_LEARNING_PREVIEW = "learning_preview"
 STEP_PRESENCE = "presence"
+STEP_SEQUENCES = "sequences"
 STEP_SAVE = "save"
 MENU_OPTIONS = [
     STEP_SIMULATION_LIGHTS,
@@ -73,6 +90,7 @@ MENU_OPTIONS = [
     STEP_LEARNING,
     STEP_LEARNING_PREVIEW,
     STEP_PRESENCE,
+    STEP_SEQUENCES,
     STEP_SAVE,
 ]
 
@@ -187,6 +205,32 @@ def _presence_schema(options: Mapping[str, Any]) -> vol.Schema:
                 CONF_MARGIN_AFTER,
                 default=options.get(CONF_MARGIN_AFTER, DEFAULT_MARGIN_AFTER),
             ): _HOURS_SELECTOR,
+        }
+    )
+
+
+def _number(maximum: float, unit: str) -> NumberSelector:
+    return NumberSelector(
+        NumberSelectorConfig(
+            min=0, max=maximum, step=1, unit_of_measurement=unit, mode=NumberSelectorMode.BOX
+        )
+    )
+
+
+# (option, default, maximum, unit)
+_SEQUENCE_OPTIONS = (
+    (CONF_STEP_DELAY_MIN, DEFAULT_STEP_DELAY_MIN, 600, "s"),
+    (CONF_STEP_DELAY_MAX, DEFAULT_STEP_DELAY_MAX, 600, "s"),
+    (CONF_DWELL_MIN, DEFAULT_DWELL_MIN, 120, "min"),
+    (CONF_DWELL_MAX, DEFAULT_DWELL_MAX, 120, "min"),
+)
+
+
+def _sequences_schema(options: Mapping[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(key, default=options.get(key, default)): _number(maximum, unit)
+            for key, default, maximum, unit in _SEQUENCE_OPTIONS
         }
     )
 
@@ -356,6 +400,14 @@ class LumaPresenceConfigFlow(_LumaSteps, ConfigFlow, domain=DOMAIN):
         """Return the options flow."""
         return LumaPresenceOptionsFlow()
 
+    @classmethod
+    @callback
+    def async_get_supported_subentry_types(
+        cls, config_entry: ConfigEntry
+    ) -> dict[str, type[ConfigSubentryFlow]]:
+        """Night routes are subentries of the entry."""
+        return {SUBENTRY_ROUTE: RouteSubentryFlow}
+
 
 class LumaPresenceOptionsFlow(_LumaSteps, OptionsFlow):
     """Edit the options from a menu; only Save writes the entry."""
@@ -391,6 +443,17 @@ class LumaPresenceOptionsFlow(_LumaSteps, OptionsFlow):
             errors=errors,
         )
 
+    async def async_step_sequences(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Step delays and time spent at the destination of night routes."""
+        if user_input is not None:
+            self._update(STEP_SEQUENCES, user_input)
+            return await self.async_step_init()
+        return self.async_show_form(
+            step_id=STEP_SEQUENCES, data_schema=_sequences_schema(self._options)
+        )
+
     async def async_step_save(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -411,3 +474,96 @@ class LumaPresenceOptionsFlow(_LumaSteps, OptionsFlow):
 
     async def _async_after(self, step_id: str) -> ConfigFlowResult:
         return await self.async_step_init()
+
+
+# ----------------------------------------------------------------------
+# Night routes
+# ----------------------------------------------------------------------
+# Dragging to reorder multiple entities needs Home Assistant 2025.8 or later.
+_REORDER: dict[str, Any] = (
+    {"reorder": True}
+    if "reorder"
+    in EntitySelectorConfig.__required_keys__ | EntitySelectorConfig.__optional_keys__
+    else {}
+)
+_ROUTE_LIGHT = EntitySelector(EntitySelectorConfig(domain=["light", "switch"]))
+_ROUTE_PATH = EntitySelector(
+    EntitySelectorConfig(domain=["light", "switch"], multiple=True, **_REORDER)
+)
+_ROUTE_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_NAME): TextSelector(),
+        vol.Required(CONF_ORIGIN): _ROUTE_LIGHT,
+        vol.Optional(CONF_PATH): _ROUTE_PATH,
+        vol.Required(CONF_DESTINATION): _ROUTE_LIGHT,
+    }
+)
+
+
+def _validate_route(user_input: Mapping[str, Any]) -> dict[str, str]:
+    origin = user_input[CONF_ORIGIN]
+    destination = user_input[CONF_DESTINATION]
+    path = list(user_input.get(CONF_PATH) or [])
+    if origin == destination:
+        return {CONF_DESTINATION: "same_origin_destination"}
+    lights = [origin, *path, destination]
+    if len(set(lights)) != len(lights):
+        return {CONF_PATH: "duplicate_light"}
+    return {}
+
+
+def _route_data(user_input: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        CONF_ORIGIN: user_input[CONF_ORIGIN],
+        CONF_PATH: list(user_input.get(CONF_PATH) or []),
+        CONF_DESTINATION: user_input[CONF_DESTINATION],
+    }
+
+
+class RouteSubentryFlow(ConfigSubentryFlow):
+    """Add or edit a night route."""
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Add a route."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            errors = _validate_route(user_input)
+            if not errors:
+                return self.async_create_entry(
+                    title=user_input[CONF_NAME], data=_route_data(user_input)
+                )
+        return self.async_show_form(
+            step_id="user",
+            data_schema=self.add_suggested_values_to_schema(
+                _ROUTE_SCHEMA, user_input or {}
+            ),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Edit a route."""
+        subentry = self._get_reconfigure_subentry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            errors = _validate_route(user_input)
+            if not errors:
+                # handler[0] is the entry id; _get_entry() needs Home Assistant 2025.4.
+                entry = self.hass.config_entries.async_get_known_entry(self.handler[0])
+                return self.async_update_and_abort(
+                    entry,
+                    subentry,
+                    title=user_input[CONF_NAME],
+                    data=_route_data(user_input),
+                )
+        current = {CONF_NAME: subentry.title, **subentry.data}
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                _ROUTE_SCHEMA, user_input or current
+            ),
+            errors=errors,
+        )

@@ -31,6 +31,8 @@ NUMBERS: tuple[_NumberDef, ...] = (
     _NumberDef("min_dwell", 1, 120, 1, UnitOfTime.MINUTES, False),
     _NumberDef("max_dwell", 1, 120, 1, UnitOfTime.MINUTES, False),
     _NumberDef("stop_interval", 0, 600, 5, UnitOfTime.SECONDS, False),
+    _NumberDef("sequence_min_interval", 5, 360, 5, UnitOfTime.MINUTES, True),
+    _NumberDef("sequence_max_interval", 5, 360, 5, UnitOfTime.MINUTES, True),
 )
 
 

@@ -1,4 +1,4 @@
-"""Switches: master simulation switch and boolean settings."""
+"""Switches: master simulation switch, night sequences and boolean settings."""
 
 from __future__ import annotations
 
@@ -13,12 +13,13 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .entity import LumaEntity
 from .models import LumaConfigEntry
 
-# (setting key, entity category)
-SETTING_SWITCHES: tuple[tuple[str, EntityCategory | None], ...] = (
-    ("late_arrival", EntityCategory.CONFIG),
-    ("delayed_start", EntityCategory.CONFIG),
-    ("delayed_end", EntityCategory.CONFIG),
-    ("learning_paused", None),
+# (entity key, entity category, setting name when it differs from the key)
+SETTING_SWITCHES: tuple[tuple[str, EntityCategory | None, str | None], ...] = (
+    ("late_arrival", EntityCategory.CONFIG, None),
+    ("delayed_start", EntityCategory.CONFIG, None),
+    ("delayed_end", EntityCategory.CONFIG, None),
+    ("learning_paused", None, None),
+    ("sequences", EntityCategory.CONFIG, "sequences_enabled"),
 )
 
 
@@ -29,7 +30,10 @@ async def async_setup_entry(
 ) -> None:
     """Set up the switches."""
     entities: list[SwitchEntity] = [LumaMasterSwitch(entry)]
-    entities.extend(LumaSettingSwitch(entry, key, cat) for key, cat in SETTING_SWITCHES)
+    entities.extend(
+        LumaSettingSwitch(entry, key, category, setting)
+        for key, category, setting in SETTING_SWITCHES
+    )
     async_add_entities(entities)
 
 
@@ -71,11 +75,16 @@ class LumaSettingSwitch(LumaEntity, SwitchEntity, RestoreEntity):
     """Boolean setting stored in LumaSettings."""
 
     def __init__(
-        self, entry: LumaConfigEntry, key: str, category: EntityCategory | None
+        self,
+        entry: LumaConfigEntry,
+        key: str,
+        category: EntityCategory | None,
+        setting: str | None = None,
     ) -> None:
         """Initialize the setting switch."""
         super().__init__(entry, key, "switch")
         self._attr_entity_category = category
+        self._setting = setting or key
 
     async def async_added_to_hass(self) -> None:
         """Restore the stored value."""
@@ -84,16 +93,16 @@ class LumaSettingSwitch(LumaEntity, SwitchEntity, RestoreEntity):
             "on",
             "off",
         ):
-            setattr(self._runtime.settings, self._key, last.state == STATE_ON)
+            setattr(self._runtime.settings, self._setting, last.state == STATE_ON)
 
     @property
     def is_on(self) -> bool:
         """Return the setting value."""
-        return bool(getattr(self._runtime.settings, self._key))
+        return bool(getattr(self._runtime.settings, self._setting))
 
     async def _async_set(self, value: bool) -> None:
-        setattr(self._runtime.settings, self._key, value)
-        await self._runtime.async_setting_changed(self._key)
+        setattr(self._runtime.settings, self._setting, value)
+        await self._runtime.async_setting_changed(self._setting)
         self.async_write_ha_state()
 
     async def async_turn_on(self, **kwargs: Any) -> None:

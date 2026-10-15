@@ -79,6 +79,7 @@
           "learning": "Aprendizaje",
           "learning_preview": "Vista previa del aprendizaje",
           "presence": "Personas y alarma",
+          "sequences": "Secuencias nocturnas",
           "save": "Guardar"
         }
       },
@@ -140,6 +141,22 @@
           "margin_before_hours": "Horas de actividad que se descartan justo antes de detectar una ausencia.",
           "margin_after_hours": "Horas que el aprendizaje sigue pausado después de volver."
         }
+      },
+      "sequences": {
+        "title": "Secuencias nocturnas",
+        "description": "Tiempos de cada recorrido nocturno. Cada espera es un valor aleatorio entre su mínimo y su máximo.",
+        "data": {
+          "step_delay_min": "Espera mínima entre pasos",
+          "step_delay_max": "Espera máxima entre pasos",
+          "dwell_min": "Tiempo mínimo en el destino",
+          "dwell_max": "Tiempo máximo en el destino"
+        },
+        "data_description": {
+          "step_delay_min": "Tiempo entre una luz y la siguiente durante el recorrido.",
+          "step_delay_max": "Tiempo entre una luz y la siguiente durante el recorrido.",
+          "dwell_min": "Tiempo que la luz del destino sigue encendida antes de volver.",
+          "dwell_max": "Tiempo que la luz del destino sigue encendida antes de volver."
+        }
       }
     },
     "error": {
@@ -148,7 +165,56 @@
       "facade_overlap": "Una luz no puede ser delantera y trasera a la vez."
     }
   },
+  "config_subentries": {
+    "route": {
+      "entry_type": "Recorrido",
+      "initiate_flow": {
+        "user": "Añadir recorrido"
+      },
+      "step": {
+        "user": {
+          "title": "Recorrido",
+          "description": "Un camino que alguien recorre de noche: desde el origen (por ejemplo, el dormitorio), por las luces de paso en orden, hasta el destino (por ejemplo, el baño), y vuelta. Las luces del recorrido no tienen por qué ser luces de simulación.",
+          "data": {
+            "name": "Nombre",
+            "origin": "Origen",
+            "path": "Paso",
+            "destination": "Destino"
+          },
+          "data_description": {
+            "origin": "Luz que se enciende primero, por ejemplo la del dormitorio.",
+            "path": "Luces intermedias, en el orden en que se recorren, por ejemplo la del pasillo.",
+            "destination": "Luz donde termina el recorrido, por ejemplo la del baño."
+          }
+        },
+        "reconfigure": {
+          "title": "Recorrido",
+          "description": "Un camino que alguien recorre de noche: desde el origen (por ejemplo, el dormitorio), por las luces de paso en orden, hasta el destino (por ejemplo, el baño), y vuelta. Las luces del recorrido no tienen por qué ser luces de simulación.",
+          "data": {
+            "name": "Nombre",
+            "origin": "Origen",
+            "path": "Paso",
+            "destination": "Destino"
+          },
+          "data_description": {
+            "origin": "Luz que se enciende primero, por ejemplo la del dormitorio.",
+            "path": "Luces intermedias, en el orden en que se recorren, por ejemplo la del pasillo.",
+            "destination": "Luz donde termina el recorrido, por ejemplo la del baño."
+          }
+        }
+      },
+      "error": {
+        "same_origin_destination": "El origen y el destino deben ser luces distintas.",
+        "duplicate_light": "Cada luz solo puede aparecer una vez en un recorrido."
+      }
+    }
+  },
   "entity": {
+    "button": {
+      "test_sequence": {
+        "name": "Probar secuencia"
+      }
+    },
     "switch": {
       "simulation": {
         "name": "Simulación"
@@ -164,6 +230,9 @@
       },
       "learning_paused": {
         "name": "Pausar aprendizaje"
+      },
+      "sequences": {
+        "name": "Secuencias nocturnas"
       }
     },
     "select": {
@@ -205,6 +274,12 @@
       },
       "stop_interval": {
         "name": "Intervalo máximo de apagado"
+      },
+      "sequence_min_interval": {
+        "name": "Intervalo mínimo entre secuencias"
+      },
+      "sequence_max_interval": {
+        "name": "Intervalo máximo entre secuencias"
       }
     },
     "time": {
@@ -216,6 +291,9 @@
       },
       "late_end_time": {
         "name": "Hora de fin tardía"
+      },
+      "sequence_start_time": {
+        "name": "Inicio de secuencias"
       }
     },
     "binary_sensor": {
@@ -224,6 +302,9 @@
       },
       "learning_active": {
         "name": "Aprendiendo"
+      },
+      "sequence_running": {
+        "name": "Secuencia en curso"
       }
     },
     "sensor": {
@@ -250,6 +331,9 @@
       },
       "learning_lights": {
         "name": "Luces de aprendizaje"
+      },
+      "next_sequence": {
+        "name": "Próxima secuencia"
       }
     }
   },
@@ -305,6 +389,20 @@
           "description": "Último día que se olvida."
         }
       }
+    },
+    "run_sequence": {
+      "name": "Ejecutar secuencia",
+      "description": "Ejecuta ahora un recorrido nocturno, aunque la simulación esté apagada o se esté fuera de la ventana de secuencias.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Instancia",
+          "description": "Instancia de LumaPresence. Todas si se deja vacío."
+        },
+        "route": {
+          "name": "Recorrido",
+          "description": "Nombre del recorrido que se ejecuta. Uno al azar si se deja vacío."
+        }
+      }
     }
   },
   "issues": {
@@ -316,6 +414,15 @@
   "exceptions": {
     "no_entry": {
       "message": "Ninguna instancia cargada de LumaPresence coincide con la petición."
+    },
+    "unknown_route": {
+      "message": "No hay ningún recorrido llamado {route}."
+    },
+    "sequence_running": {
+      "message": "Ya hay un recorrido nocturno en curso."
+    },
+    "no_routes": {
+      "message": "No se puede ejecutar ningún recorrido: añade uno o comprueba que las luces de origen y destino de los recorridos están disponibles."
     }
   }
 }

@@ -23,6 +23,7 @@ from .const import (
     ATTR_CONFIG_ENTRY_ID,
     ATTR_END_DATE,
     ATTR_LIGHTS_BEHAVIOR,
+    ATTR_ROUTE,
     ATTR_START_DATE,
     CONF_ALARM,
     CONF_LEARN_AREAS,
@@ -34,18 +35,23 @@ from .const import (
     CONF_REAR_LIGHTS,
     DOMAIN,
     SERVICE_FORGET_PERIOD,
+    SERVICE_RUN_SEQUENCE,
     SERVICE_START,
     SERVICE_STOP,
     STOP_BEHAVIORS,
+    SUBENTRY_ROUTE,
 )
 from .engine import SimulationEngine
 from .learning import LearningGate
-from .models import LumaConfigEntry, LumaRuntime, LumaSettings
+from .light_control import LightController
+from .models import LumaConfigEntry, LumaRuntime, LumaSettings, Route
+from .sequences import SequenceEngine
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
+    Platform.BUTTON,
     Platform.NUMBER,
     Platform.SELECT,
     Platform.SENSOR,
@@ -60,6 +66,7 @@ START_SCHEMA = vol.Schema(_BASE_SCHEMA)
 STOP_SCHEMA = vol.Schema(
     {**_BASE_SCHEMA, vol.Optional(ATTR_LIGHTS_BEHAVIOR): vol.In(STOP_BEHAVIORS)}
 )
+RUN_SEQUENCE_SCHEMA = vol.Schema({**_BASE_SCHEMA, vol.Optional(ATTR_ROUTE): cv.string})
 FORGET_SCHEMA = vol.Schema(
     {
         **_BASE_SCHEMA,
@@ -102,10 +109,26 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             )
             _LOGGER.info("Forgot %s learned days", removed)
 
+    async def _run_sequence(call: ServiceCall) -> None:
+        runtimes = _runtimes(hass, call)
+        if (name := call.data.get(ATTR_ROUTE)) is not None:
+            runtimes = [r for r in runtimes if r.sequences.has_route(name)]
+            if not runtimes:
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="unknown_route",
+                    translation_placeholders={"route": name},
+                )
+        for runtime in runtimes:
+            runtime.sequences.async_run_now(name)
+
     hass.services.async_register(DOMAIN, SERVICE_START, _start, schema=START_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_STOP, _stop, schema=STOP_SCHEMA)
     hass.services.async_register(
         DOMAIN, SERVICE_FORGET_PERIOD, _forget, schema=FORGET_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_RUN_SEQUENCE, _run_sequence, schema=RUN_SEQUENCE_SCHEMA
     )
     return True
 
@@ -114,8 +137,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
     """Set up LumaPresence from a config entry."""
     integration = await async_get_integration(hass, DOMAIN)
     config = {**entry.data, **entry.options}
+    routes = [
+        Route.from_data(subentry.subentry_id, subentry.title, subentry.data)
+        for subentry in entry.subentries.values()
+        if subentry.subentry_type == SUBENTRY_ROUTE
+    ]
     settings = LumaSettings()
-    engine = SimulationEngine(hass, entry.entry_id, config, settings)
+    controller = LightController(hass, entry.entry_id)
+    engine = SimulationEngine(hass, entry.entry_id, config, settings, controller)
+    sequences = SequenceEngine(
+        hass, entry.entry_id, config, settings, controller, engine, routes
+    )
     learning = LearningGate(hass, entry.entry_id, config, settings, engine)
     await learning.async_load()
     entry.runtime_data = LumaRuntime(
@@ -124,7 +156,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         version=str(integration.version),
         config=config,
         settings=settings,
+        controller=controller,
         engine=engine,
+        sequences=sequences,
         learning=learning,
     )
 
@@ -132,8 +166,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     async def _async_start(_hass: HomeAssistant) -> None:
-        _check_entities(hass, entry, config)
+        route_lights = [light for route in routes for light in route.lights]
+        _check_entities(hass, entry, config, route_lights)
+        await controller.async_start([*engine.lights, *route_lights])
         await engine.async_start()
+        await sequences.async_start()
         await learning.async_start()
 
     entry.async_on_unload(async_at_started(hass, _async_start))
@@ -164,8 +201,10 @@ async def async_migrate_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bo
 async def async_unload_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool:
     """Unload a config entry."""
     runtime = entry.runtime_data
+    await runtime.sequences.async_shutdown()
     await runtime.engine.async_shutdown()
     await runtime.learning.async_shutdown()
+    await runtime.controller.async_shutdown()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
@@ -178,9 +217,15 @@ async def _async_update_listener(hass: HomeAssistant, entry: LumaConfigEntry) ->
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-def _check_entities(hass: HomeAssistant, entry: LumaConfigEntry, config: dict) -> None:
+def _check_entities(
+    hass: HomeAssistant, entry: LumaConfigEntry, config: dict, route_lights: list[str]
+) -> None:
     """Raise a repair issue if configured entities no longer exist."""
-    entities = [*config.get(CONF_LIGHTS, []), *config.get(CONF_PERSONS, [])]
+    entities = [
+        *config.get(CONF_LIGHTS, []),
+        *config.get(CONF_PERSONS, []),
+        *dict.fromkeys(route_lights),
+    ]
     if alarm := config.get(CONF_ALARM):
         entities.append(alarm)
     missing = [entity_id for entity_id in entities if hass.states.get(entity_id) is None]

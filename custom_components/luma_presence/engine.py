@@ -3,39 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-from collections import deque
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 import logging
 import random
 from typing import Any
 
-from homeassistant.const import (
-    ATTR_ENTITY_ID,
-    SERVICE_TURN_OFF,
-    SERVICE_TURN_ON,
-    STATE_OFF,
-    STATE_ON,
-    STATE_UNAVAILABLE,
-    STATE_UNKNOWN,
-    SUN_EVENT_SUNRISE,
-    SUN_EVENT_SUNSET,
-)
-from homeassistant.core import (
-    CALLBACK_TYPE,
-    Context,
-    Event,
-    EventStateChangedData,
-    HomeAssistant,
-    callback,
-)
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.const import STATE_OFF, STATE_ON, SUN_EVENT_SUNRISE, SUN_EVENT_SUNSET
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import (
-    async_track_point_in_utc_time,
-    async_track_state_change_event,
-)
-from homeassistant.helpers.storage import Store
+from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.sun import (
     get_astral_event_date,
     get_astral_event_next,
@@ -53,7 +30,7 @@ from .const import (
     MAX_END_JITTER_MIN,
     MAX_START_JITTER_MIN,
     MODE_SUN,
-    OWN_CONTEXT_MAXLEN,
+    OWNER_SIMULATION,
     STATUS_IDLE,
     STATUS_SIMULATING,
     STATUS_STOPPING,
@@ -62,23 +39,20 @@ from .const import (
     STOP_KEEP_ON,
     STOP_OFF_GRADUAL,
     STOP_OFF_NOW,
-    STORE_VERSION,
     signal_update,
 )
+from .light_control import LightController
 from .models import LumaSettings
 
 _LOGGER = logging.getLogger(__name__)
-
-_IGNORED_STATES = (STATE_UNAVAILABLE, STATE_UNKNOWN)
 
 
 class SimulationEngine:
     """Schedules simulation windows and drives the lights inside them.
 
-    Ownership rule: the engine only remembers lights it turned on itself.
-    As soon as someone else changes one of those lights, ownership is
-    released, so stopping the simulation never touches a light a person
-    switched on.
+    Lights are switched through the shared LightController, which applies the
+    ownership rule. Lights locked by a running route are counted for the
+    limits but never toggled.
     """
 
     def __init__(
@@ -87,6 +61,7 @@ class SimulationEngine:
         entry_id: str,
         config: dict[str, Any],
         settings: LumaSettings,
+        controller: LightController,
     ) -> None:
         """Initialize the engine."""
         self.hass = hass
@@ -95,25 +70,18 @@ class SimulationEngine:
         self._front: set[str] = set(config.get(CONF_FRONT_LIGHTS, []))
         self._rear: set[str] = set(config.get(CONF_REAR_LIGHTS, []))
         self.settings = settings
+        self.controller = controller
 
         self.enabled = False
         self.next_event: datetime | None = None
         self.next_event_kind: str | None = None
-        self.last_action: dict[str, Any] | None = None
 
         self._started = False
         self._sim_task: asyncio.Task[None] | None = None
         self._stop_task: asyncio.Task[None] | None = None
         self._unsub_timer: CALLBACK_TYPE | None = None
-        self._unsub_state: CALLBACK_TYPE | None = None
-        self._owned: dict[str, str] = {}
-        self._own_ids: deque[str] = deque(maxlen=OWN_CONTEXT_MAXLEN)
-        self._own_set: set[str] = set()
         self._jitter: dict[date, tuple[float, float]] = {}
         self._enabled_listeners: list[Callable[[], None]] = []
-        self._store: Store[dict[str, Any]] = Store(
-            hass, STORE_VERSION, f"{DOMAIN}.{entry_id}.engine"
-        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -130,13 +98,23 @@ class SimulationEngine:
         return STATUS_IDLE
 
     @property
+    def lights(self) -> list[str]:
+        """Lights the simulation may control."""
+        return list(self._lights)
+
+    @property
     def owned_lights(self) -> list[str]:
         """Lights currently owned by the simulation."""
-        return sorted(self._owned)
+        return self.controller.owned(OWNER_SIMULATION)
+
+    @property
+    def last_action(self) -> dict[str, Any] | None:
+        """Last action of LumaPresence."""
+        return self.controller.last_action
 
     def is_own_context(self, context_id: str) -> bool:
-        """Return True if a context was created by this engine."""
-        return context_id in self._own_set
+        """Return True if a context was created by LumaPresence."""
+        return self.controller.is_own_context(context_id)
 
     @callback
     def add_enabled_listener(self, listener: Callable[[], None]) -> CALLBACK_TYPE:
@@ -157,15 +135,6 @@ class SimulationEngine:
 
     async def async_start(self) -> None:
         """Start the engine once Home Assistant is running."""
-        data = await self._store.async_load() or {}
-        for entity_id in data.get("owned", []):
-            state = self.hass.states.get(entity_id)
-            if entity_id in self._lights and state is not None and state.state == STATE_ON:
-                # Context ids do not survive a restart; keep ownership by entity.
-                self._owned[entity_id] = ""
-        self._unsub_state = async_track_state_change_event(
-            self.hass, self._lights, self._handle_light_change
-        )
         self._started = True
         if self.enabled:
             await self._async_reschedule()
@@ -175,15 +144,11 @@ class SimulationEngine:
         """Stop all timers and tasks without touching the lights."""
         self._started = False
         self._cancel_timer()
-        if self._unsub_state is not None:
-            self._unsub_state()
-            self._unsub_state = None
         for task in (self._sim_task, self._stop_task):
             if task is not None:
                 task.cancel()
         self._sim_task = None
         self._stop_task = None
-        await self._store.async_save(self._data_to_save())
 
     async def async_set_enabled(
         self, enabled: bool, *, stop_behavior: str | None = None
@@ -192,6 +157,8 @@ class SimulationEngine:
         if enabled == self.enabled:
             return
         self.enabled = enabled
+        # Listeners run first: a running route is cancelled before its lights
+        # are handled below together with the simulation's lights.
         for listener in list(self._enabled_listeners):
             listener()
         if self._started:
@@ -200,7 +167,7 @@ class SimulationEngine:
             else:
                 self._cancel_timer()
                 await self._async_end_simulation(
-                    stop_behavior or self.settings.stop_behavior
+                    stop_behavior or self.settings.stop_behavior, all_owners=True
                 )
         self._notify()
 
@@ -329,7 +296,7 @@ class SimulationEngine:
         if self._stop_task is not None:
             self._stop_task.cancel()
             self._stop_task = None
-        self._record(None, "simulation_started")
+        self.controller.record(None, "simulation_started")
         self._sim_task = self.hass.async_create_background_task(
             self._async_simulation_loop(),
             f"{DOMAIN}_simulation_{self._entry_id}",
@@ -354,8 +321,10 @@ class SimulationEngine:
         ]
         if not available:
             return
+        # Locked lights belong to a running route: counted, never toggled.
         on = [e for e in available if states[e].state == STATE_ON]  # type: ignore[union-attr]
         off = [e for e in available if e not in on]
+        free_off = [e for e in off if not self.controller.is_locked(e)]
 
         max_on = max(settings.max_lights, 0)
         min_on = min(max(settings.min_lights, 0), max_on)
@@ -370,40 +339,47 @@ class SimulationEngine:
         facade_target: str | None = None
         for members, minimum in facades:
             facade_on = [e for e in on if e in members]
-            facade_off = [e for e in off if e in members]
+            facade_off = [e for e in free_off if e in members]
             if len(facade_on) <= minimum:
                 protected.update(facade_on)
             if facade_target is None and facade_off and len(facade_on) < minimum:
                 facade_target = random.choice(facade_off)
-        removable = [e for e in on if e not in protected]
+        free_on = [e for e in on if not self.controller.is_locked(e)]
+        removable = [e for e in free_on if e not in protected]
 
         target: str | None = None
         turn_on = False
         if facade_target is not None and len(on) < max_on:
             target, turn_on = facade_target, True
         elif len(on) > max_on:
-            target = random.choice(removable or on)
-        elif len(on) < min_on and off:
-            target, turn_on = random.choice(off), True
+            if candidates := removable or free_on:
+                target = random.choice(candidates)
+        elif len(on) < min_on and free_off:
+            target, turn_on = random.choice(free_off), True
         else:
             pool: list[str] = []
             if len(on) > min_on:
                 pool.extend(removable)
             if len(on) < max_on:
-                pool.extend(off)
+                pool.extend(free_off)
             if pool:
                 target = random.choice(pool)
-                turn_on = target in off
+                turn_on = target in free_off
 
         if target is not None:
             await self._async_switch(target, turn_on)
 
-    async def _async_end_simulation(self, behavior: str) -> None:
-        """Stop the loop and handle the lights the simulation owns."""
+    async def _async_end_simulation(
+        self, behavior: str, *, all_owners: bool = False
+    ) -> None:
+        """Stop the loop and handle the lights the simulation owns.
+
+        With `all_owners`, the lights of an interrupted route are handled too.
+        """
         if self._sim_task is not None:
             self._sim_task.cancel()
             self._sim_task = None
-            self._record(None, "simulation_stopped")
+            self.controller.record(None, "simulation_stopped")
         if self._stop_task is not None:
             self._stop_task.cancel()
             self._stop_task = None
@@ -411,10 +387,10 @@ class SimulationEngine:
         if behavior == STOP_KEEP_IF_NIGHT:
             behavior = STOP_OFF_GRADUAL if is_up(self.hass) else STOP_KEEP_ON
 
-        lights = self._owned_lights_on()
+        owner = None if all_owners else OWNER_SIMULATION
+        lights = self.controller.owned_on(owner)
         if behavior == STOP_KEEP_ON or not lights:
-            self._owned.clear()
-            self._save()
+            self.controller.release(owner)
         elif behavior == STOP_OFF_NOW:
             for entity_id in lights:
                 await self._async_switch(entity_id, False)
@@ -428,97 +404,20 @@ class SimulationEngine:
 
     async def _async_gradual_off(self, lights: list[str]) -> None:
         try:
-            random.shuffle(lights)
-            for index, entity_id in enumerate(lights):
-                if entity_id not in self._owned:
-                    continue  # someone took over this light
-                await self._async_switch(entity_id, False)
-                if index < len(lights) - 1 and self.settings.stop_interval > 0:
-                    await asyncio.sleep(random.uniform(0, self.settings.stop_interval))
+            await self.controller.async_turn_off_gradually(
+                lights, self.settings.stop_interval
+            )
         finally:
             if self._stop_task is asyncio.current_task():
                 self._stop_task = None
                 self._notify()
 
-    def _owned_lights_on(self) -> list[str]:
-        return [
-            entity_id
-            for entity_id in self._owned
-            if (state := self.hass.states.get(entity_id)) is not None
-            and state.state == STATE_ON
-        ]
-
     async def _async_switch(self, entity_id: str, turn_on: bool) -> bool:
-        context = Context()
-        self._remember_context(context.id)
-        if turn_on:
-            self._owned[entity_id] = context.id
-        try:
-            await self.hass.services.async_call(
-                "homeassistant",
-                SERVICE_TURN_ON if turn_on else SERVICE_TURN_OFF,
-                {ATTR_ENTITY_ID: entity_id},
-                blocking=True,
-                context=context,
-            )
-        except HomeAssistantError as err:
-            _LOGGER.warning("Could not switch %s: %s", entity_id, err)
-            if turn_on:
-                self._owned.pop(entity_id, None)
-            return False
-        if not turn_on:
-            self._owned.pop(entity_id, None)
-        self._record(entity_id, STATE_ON if turn_on else STATE_OFF)
-        self._save()
-        return True
-
-    @callback
-    def _handle_light_change(self, event: Event[EventStateChangedData]) -> None:
-        entity_id = event.data["entity_id"]
-        if entity_id not in self._owned:
-            return
-        new = event.data["new_state"]
-        old = event.data["old_state"]
-        if new is None:
-            self._owned.pop(entity_id, None)
-            self._save()
-            return
-        if new.context.id in self._own_set:
-            return
-        if new.state in _IGNORED_STATES or (old is not None and old.state in _IGNORED_STATES):
-            return  # a device dropping offline is not a person touching it
-        if old is None or old.state != new.state or new.context.user_id is not None:
-            self._owned.pop(entity_id, None)
-            self._save()
+        return await self.controller.async_switch(entity_id, turn_on, OWNER_SIMULATION)
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    def _remember_context(self, context_id: str) -> None:
-        if len(self._own_ids) == self._own_ids.maxlen:
-            self._own_set.discard(self._own_ids[0])
-        self._own_ids.append(context_id)
-        self._own_set.add(context_id)
-
-    @callback
-    def _record(self, entity_id: str | None, action: str) -> None:
-        self.last_action = {
-            "time": dt_util.utcnow().isoformat(),
-            "entity_id": entity_id,
-            "action": action,
-        }
-        self.hass.bus.async_fire(
-            f"{DOMAIN}_action", {"entry_id": self._entry_id, **self.last_action}
-        )
-        self._notify()
-
     @callback
     def _notify(self) -> None:
         async_dispatcher_send(self.hass, signal_update(self._entry_id))
-
-    def _data_to_save(self) -> dict[str, Any]:
-        return {"owned": list(self._owned)}
-
-    @callback
-    def _save(self) -> None:
-        self._store.async_delay_save(self._data_to_save, 10)

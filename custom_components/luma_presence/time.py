@@ -1,4 +1,4 @@
-"""Time entities: start, end and late end of the Time mode window."""
+"""Time entities: Time mode window and start of the night sequences."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .entity import LumaEntity
 from .models import LumaConfigEntry
 
-TIMES = ("start_time", "end_time", "late_end_time")
+TIMES = ("start_time", "end_time", "late_end_time", "sequence_start_time")
 
 
 async def async_setup_entry(

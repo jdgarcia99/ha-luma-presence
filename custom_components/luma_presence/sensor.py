@@ -1,4 +1,4 @@
-"""Sensors: status, next event, last action, learning progress and light lists."""
+"""Sensors: status, next events, last action, learning progress and light lists."""
 
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ async def async_setup_entry(
         [
             StatusSensor(entry),
             NextEventSensor(entry),
+            NextSequenceSensor(entry),
             LastActionSensor(entry),
             LearningDaysSensor(entry),
             SimulationLightsSensor(entry),
@@ -73,6 +74,26 @@ class NextEventSensor(LumaEntity, SensorEntity):
         return {"kind": self._runtime.engine.next_event_kind}
 
 
+class NextSequenceSensor(LumaEntity, SensorEntity):
+    """Next scheduled night route."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, entry: LumaConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(entry, "next_sequence", "sensor")
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the time of the next route."""
+        return self._runtime.sequences.next_run
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the names of the configured routes."""
+        return {"routes": [route.name for route in self._runtime.sequences.routes]}
+
+
 class LastActionSensor(LumaEntity, SensorEntity):
     """Last action performed by the simulation."""
 
@@ -85,7 +106,7 @@ class LastActionSensor(LumaEntity, SensorEntity):
     @property
     def native_value(self) -> str | None:
         """Return a short description of the last action."""
-        action = self._runtime.engine.last_action
+        action = self._runtime.controller.last_action
         if action is None:
             return None
         if action["entity_id"]:
@@ -95,7 +116,7 @@ class LastActionSensor(LumaEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the raw action."""
-        return dict(self._runtime.engine.last_action or {})
+        return dict(self._runtime.controller.last_action or {})
 
 
 class LearningDaysSensor(LumaEntity, SensorEntity):

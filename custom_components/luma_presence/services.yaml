@@ -35,3 +35,13 @@ forget_period:
       required: true
       selector:
         date:
+
+run_sequence:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: luma_presence
+    route:
+      selector:
+        text:

@@ -22,9 +22,35 @@ CONF_LEARN_AREAS: Final = "learn_areas"
 CONF_LEARN_EXTRA: Final = "learn_extra"
 CONF_LEARN_EXCLUDE: Final = "learn_exclude"
 
+CONF_STEP_DELAY_MIN: Final = "step_delay_min"
+CONF_STEP_DELAY_MAX: Final = "step_delay_max"
+CONF_DWELL_MIN: Final = "dwell_min"
+CONF_DWELL_MAX: Final = "dwell_max"
+
 DEFAULT_MARGIN_BEFORE: Final = 2.0
 DEFAULT_MARGIN_AFTER: Final = 2.0
 DEFAULT_HUMAN_ONLY: Final = True
+DEFAULT_STEP_DELAY_MIN: Final = 10.0
+DEFAULT_STEP_DELAY_MAX: Final = 30.0
+DEFAULT_DWELL_MIN: Final = 2.0
+DEFAULT_DWELL_MAX: Final = 5.0
+
+# Night routes (config subentries)
+SUBENTRY_ROUTE: Final = "route"
+CONF_ORIGIN: Final = "origin"
+CONF_PATH: Final = "path"
+CONF_DESTINATION: Final = "destination"
+
+# Which part of LumaPresence turned a light on
+OWNER_SIMULATION: Final = "simulation"
+OWNER_SEQUENCE: Final = "sequence"
+
+# Steps of a running route
+STEP_ORIGIN: Final = "origin"
+STEP_PATH: Final = "path"
+STEP_DESTINATION: Final = "destination"
+STEP_DWELL: Final = "dwell"
+STEP_RETURN: Final = "return"
 
 # Simulation modes (Replay and Dream arrive in later phases)
 MODE_SUN: Final = "sun"
@@ -47,6 +73,8 @@ STATUSES: Final = [STATUS_IDLE, STATUS_WAITING, STATUS_SIMULATING, STATUS_STOPPI
 
 EVENT_START: Final = "start"
 EVENT_END: Final = "end"
+
+EVENT_ACTION: Final = f"{DOMAIN}_action"
 
 MAX_START_JITTER_MIN: Final = 30
 MAX_END_JITTER_MIN: Final = 30
@@ -72,7 +100,9 @@ PREVIEW_MAX_ENTITIES: Final = 60
 SERVICE_START: Final = "start"
 SERVICE_STOP: Final = "stop"
 SERVICE_FORGET_PERIOD: Final = "forget_period"
+SERVICE_RUN_SEQUENCE: Final = "run_sequence"
 ATTR_CONFIG_ENTRY_ID: Final = "config_entry_id"
+ATTR_ROUTE: Final = "route"
 ATTR_LIGHTS_BEHAVIOR: Final = "lights_behavior"
 ATTR_START_DATE: Final = "start_date"
 ATTR_END_DATE: Final = "end_date"

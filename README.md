@@ -6,7 +6,7 @@
 
 Presence simulation for Home Assistant that makes an empty house look lived in. LumaPresence switches lights on and off in a random but believable way, works alongside your alarm, and learns how your home is really used.
 
-> **Status: phase 1 (v0.2.0).** Sun and Time modes plus learning data collection. Alarm integration, the night sequence, and the Replay and Dream modes arrive in phases 2 and 3.
+> **Status: phase 2 (v0.3.0).** Sun and Time modes, learning data collection and night sequences. The Replay mode comes next, and the Dream mode in phase 3.
 
 ## Installation (HACS)
 
@@ -25,6 +25,7 @@ Setup walks through the same sections that the integration's **Configure** butto
 | Learning | Indoor floors, indoor areas, extra entities, excluded entities, and *Learn only from human actions* (ignores changes made by automations and scripts) |
 | Learning preview | Read-only list of the entities that will be learned |
 | People and alarm | People, alarm panel, and the learning margins: hours discarded before an absence, and hours learning stays paused after returning |
+| Night sequences | Delay between the steps of a route and time spent at its destination (see [Night sequences](#night-sequences)) |
 
 ### Facades
 
@@ -44,6 +45,41 @@ The list is recomputed a few seconds after an entity, device, area or floor chan
 
 Installations upgraded from v0.1 learn from every floor that exists at upgrade time; data learned before the upgrade is kept.
 
+## Night sequences
+
+During the night, every now and then, someone seems to get up, walk to the bathroom and go back to bed. Each walk follows a **route**.
+
+### Routes
+
+Add routes with **Add route** on the integration page; each one can be edited or deleted later. A route has:
+
+| Field | Example |
+|---|---|
+| Name | Bathroom |
+| Origin | Bedroom light |
+| Path (optional, in walking order) | Hallway light |
+| Destination | Bathroom light |
+
+Route lights do not need to be simulation lights. The origin and the destination must be different, and a light can appear only once in a route.
+
+A route turns on the origin, then each path light in order, then the destination, with a random step delay between lights. It stays at the destination for a while, then walks back: destination, path lights in reverse order, origin. Only the lights the route turned on are switched off at the end, so a light that was already on stays on.
+
+### When sequences run
+
+Night sequences run from *Sequence start* (`time.luma_presence_sequence_start_time`, 00:45 by default) until sunrise, only while both the master switch and *Night sequences* (`switch.luma_presence_sequences`, off by default) are on. The first route starts at *Sequence start*, plus up to 30 minutes when *Random start delay* is on; then a new route runs every *Minimum interval between sequences* to *Maximum interval between sequences* minutes (45 to 90 by default). Routes are picked at random, never the same one twice in a row when another can run, and routes whose origin or destination is unavailable are skipped.
+
+The step delays (10 to 30 seconds by default) and the time at the destination (2 to 5 minutes by default) are set in the **Night sequences** section of **Configure**.
+
+### Interaction with the simulation
+
+- While a route runs, its lights are reserved: the simulation counts them for the minimum, maximum and facade limits, but never switches them.
+- At sunrise, or when *Night sequences* is turned off, the running route stops and its lights are switched off gradually.
+- When the master switch is turned off, the running route stops at once and its lights follow *Lights when stopping*, together with the simulation's lights.
+- A route interrupted by a restart is not resumed; its lights are switched off.
+- Learning ignores every light change made by LumaPresence, including routes.
+
+To try a route at home, press **Test sequence** (`button.luma_presence_test_sequence`) or call `luma_presence.run_sequence`. It runs at once, even with the master switch off or outside the window, and does not pause learning.
+
 ## Entities
 
 - `switch.luma_presence_simulation`: master switch. Its state is restored after a restart, and the simulation resumes if it is inside its window.
@@ -54,6 +90,7 @@ Installations upgraded from v0.1 learn from every floor that exists at upgrade t
 - Diagnostic sensors, to see from the device page which lights take part:
   - `sensor.luma_presence_simulation_lights`: number of simulation lights, with the `front`, `rear` and `interior` lists as attributes.
   - `sensor.luma_presence_learning_lights`: number of learned entities, with the `entities` list and the `auto_excluded` list (indoor lights left out automatically) as attributes.
+- Night sequences: `switch.luma_presence_sequences`, `time.luma_presence_sequence_start_time`, `number.luma_presence_sequence_min_interval`, `number.luma_presence_sequence_max_interval`, `binary_sensor.luma_presence_sequence_running` (with the `route` and `step` attributes), `sensor.luma_presence_next_sequence` (with the configured `routes` as an attribute) and `button.luma_presence_test_sequence`.
 
 The simulation always ends at sunrise at the latest. Scheduled ends turn the lights off gradually.
 
@@ -71,6 +108,7 @@ Learning pauses while the simulation is enabled, the alarm is armed away, nobody
 
 - `luma_presence.start` / `luma_presence.stop`: turn the simulation on or off. `stop` accepts an optional `lights_behavior` that overrides the configured stop behaviour.
 - `luma_presence.forget_period`: deletes everything learned between two dates.
+- `luma_presence.run_sequence`: runs a night route now. Accepts an optional `route` name; a random route otherwise.
 
 ## Translations
 
@@ -78,7 +116,7 @@ The user interface is available in English and Spanish. Contributions for other 
 
 ## Roadmap
 
-- **Phase 2**: alarm integration, night sequence, and Replay mode (replays your real usage from previous days).
+- **Phase 2**: night sequences (v0.3.0), then Replay mode (replays your real usage from previous days).
 - **Phase 3**: Dream mode (new, believable patterns generated from what has been learned, with optional AI), repairs and diagnostics.
 
 ## Development

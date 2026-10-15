@@ -79,6 +79,7 @@
           "learning": "Learning",
           "learning_preview": "Learning preview",
           "presence": "People and alarm",
+          "sequences": "Night sequences",
           "save": "Save"
         }
       },
@@ -140,6 +141,22 @@
           "margin_before_hours": "Hours of activity discarded just before an absence is detected.",
           "margin_after_hours": "Hours learning stays paused after coming back."
         }
+      },
+      "sequences": {
+        "title": "Night sequences",
+        "description": "Timing of each night route. Each wait is a random value between its minimum and its maximum.",
+        "data": {
+          "step_delay_min": "Minimum delay between steps",
+          "step_delay_max": "Maximum delay between steps",
+          "dwell_min": "Minimum time at the destination",
+          "dwell_max": "Maximum time at the destination"
+        },
+        "data_description": {
+          "step_delay_min": "Time between one light and the next while walking.",
+          "step_delay_max": "Time between one light and the next while walking.",
+          "dwell_min": "Time the destination light stays on before walking back.",
+          "dwell_max": "Time the destination light stays on before walking back."
+        }
       }
     },
     "error": {
@@ -148,7 +165,56 @@
       "facade_overlap": "A light cannot be both a front and a rear light."
     }
   },
+  "config_subentries": {
+    "route": {
+      "entry_type": "Route",
+      "initiate_flow": {
+        "user": "Add route"
+      },
+      "step": {
+        "user": {
+          "title": "Route",
+          "description": "A path someone walks at night: from the origin (for example the bedroom), along the path lights in order, to the destination (for example the bathroom), and back. Route lights do not need to be simulation lights.",
+          "data": {
+            "name": "Name",
+            "origin": "Origin",
+            "path": "Path",
+            "destination": "Destination"
+          },
+          "data_description": {
+            "origin": "Light turned on first, for example the bedroom light.",
+            "path": "Lights in between, in walking order, for example the hallway.",
+            "destination": "Light where the walk ends, for example the bathroom light."
+          }
+        },
+        "reconfigure": {
+          "title": "Route",
+          "description": "A path someone walks at night: from the origin (for example the bedroom), along the path lights in order, to the destination (for example the bathroom), and back. Route lights do not need to be simulation lights.",
+          "data": {
+            "name": "Name",
+            "origin": "Origin",
+            "path": "Path",
+            "destination": "Destination"
+          },
+          "data_description": {
+            "origin": "Light turned on first, for example the bedroom light.",
+            "path": "Lights in between, in walking order, for example the hallway.",
+            "destination": "Light where the walk ends, for example the bathroom light."
+          }
+        }
+      },
+      "error": {
+        "same_origin_destination": "The origin and the destination must be different lights.",
+        "duplicate_light": "Each light can appear only once in a route."
+      }
+    }
+  },
   "entity": {
+    "button": {
+      "test_sequence": {
+        "name": "Test sequence"
+      }
+    },
     "switch": {
       "simulation": {
         "name": "Simulation"
@@ -164,6 +230,9 @@
       },
       "learning_paused": {
         "name": "Pause learning"
+      },
+      "sequences": {
+        "name": "Night sequences"
       }
     },
     "select": {
@@ -205,6 +274,12 @@
       },
       "stop_interval": {
         "name": "Maximum switch-off interval"
+      },
+      "sequence_min_interval": {
+        "name": "Minimum interval between sequences"
+      },
+      "sequence_max_interval": {
+        "name": "Maximum interval between sequences"
       }
     },
     "time": {
@@ -216,6 +291,9 @@
       },
       "late_end_time": {
         "name": "Late end time"
+      },
+      "sequence_start_time": {
+        "name": "Sequence start"
       }
     },
     "binary_sensor": {
@@ -224,6 +302,9 @@
       },
       "learning_active": {
         "name": "Learning"
+      },
+      "sequence_running": {
+        "name": "Sequence running"
       }
     },
     "sensor": {
@@ -250,6 +331,9 @@
       },
       "learning_lights": {
         "name": "Learning lights"
+      },
+      "next_sequence": {
+        "name": "Next sequence"
       }
     }
   },
@@ -305,6 +389,20 @@
           "description": "Last day to forget."
         }
       }
+    },
+    "run_sequence": {
+      "name": "Run sequence",
+      "description": "Runs one night route now, even if the simulation is off or outside the sequence window.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Instance",
+          "description": "LumaPresence instance. All instances if empty."
+        },
+        "route": {
+          "name": "Route",
+          "description": "Name of the route to run. A random route if empty."
+        }
+      }
     }
   },
   "issues": {
@@ -316,6 +414,15 @@
   "exceptions": {
     "no_entry": {
       "message": "No loaded LumaPresence instance matches the request."
+    },
+    "unknown_route": {
+      "message": "There is no route named {route}."
+    },
+    "sequence_running": {
+      "message": "A night route is already running."
+    },
+    "no_routes": {
+      "message": "No route can run: add a route, or check that the origin and destination lights of the routes are available."
     }
   }
 }
