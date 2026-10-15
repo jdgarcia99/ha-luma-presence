@@ -33,6 +33,8 @@ from .const import (
     CONF_LIGHTS,
     CONF_PERSONS,
     CONF_REAR_LIGHTS,
+    CONF_UNAVAILABLE_ALERT_MINUTES,
+    DEFAULT_UNAVAILABLE_ALERT_MINUTES,
     DOMAIN,
     SERVICE_FORGET_PERIOD,
     SERVICE_RUN_SEQUENCE,
@@ -45,6 +47,12 @@ from .engine import SimulationEngine
 from .learning import LearningGate
 from .light_control import LightController
 from .models import LumaConfigEntry, LumaRuntime, LumaSettings, Route
+from .monitor import (
+    ROLE_ROUTE,
+    ROLE_SIMULATION,
+    AvailabilityMonitor,
+    async_delete_issues,
+)
 from .sequences import SequenceEngine
 
 _LOGGER = logging.getLogger(__name__)
@@ -144,6 +152,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
     ]
     settings = LumaSettings()
     controller = LightController(hass, entry.entry_id)
+    monitor = AvailabilityMonitor(
+        hass,
+        entry.entry_id,
+        float(
+            config.get(
+                CONF_UNAVAILABLE_ALERT_MINUTES, DEFAULT_UNAVAILABLE_ALERT_MINUTES
+            )
+        ),
+        _light_roles(config, routes),
+    )
     engine = SimulationEngine(hass, entry.entry_id, config, settings, controller)
     sequences = SequenceEngine(
         hass, entry.entry_id, config, settings, controller, engine, routes
@@ -160,6 +178,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         engine=engine,
         sequences=sequences,
         learning=learning,
+        monitor=monitor,
     )
 
     # Entities restore their settings while the platforms are set up.
@@ -172,6 +191,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         await engine.async_start()
         await sequences.async_start()
         await learning.async_start()
+        await monitor.async_start()
 
     entry.async_on_unload(async_at_started(hass, _async_start))
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
@@ -205,12 +225,27 @@ async def async_unload_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> boo
     await runtime.engine.async_shutdown()
     await runtime.learning.async_shutdown()
     await runtime.controller.async_shutdown()
+    await runtime.monitor.async_shutdown()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> None:
     """Clean up the repair issue when the entry is deleted."""
     ir.async_delete_issue(hass, DOMAIN, f"missing_entities_{entry.entry_id}")
+    async_delete_issues(hass, entry.entry_id)
+
+
+def _light_roles(
+    config: dict, routes: list[Route]
+) -> dict[str, list[tuple[str, str | None]]]:
+    """Roles of each watched light: simulation light and/or route lights."""
+    roles: dict[str, list[tuple[str, str | None]]] = {
+        light: [(ROLE_SIMULATION, None)] for light in config.get(CONF_LIGHTS, [])
+    }
+    for route in routes:
+        for light in dict.fromkeys(route.lights):
+            roles.setdefault(light, []).append((ROLE_ROUTE, route.name))
+    return roles
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: LumaConfigEntry) -> None:

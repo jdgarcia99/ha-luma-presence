@@ -32,6 +32,7 @@
           "learn_areas": "Indoor areas",
           "learn_extra": "Extra entities",
           "learn_exclude": "Excluded entities",
+          "learn_auto_exclude_indicators": "Automatically exclude indicator LEDs",
           "learn_only_human": "Learn only from human actions"
         },
         "data_description": {
@@ -39,12 +40,13 @@
           "learn_areas": "Indoor areas that do not belong to any of the floors above.",
           "learn_extra": "For example relays exposed as switches, or lamps without an area.",
           "learn_exclude": "These entities are never learned.",
+          "learn_auto_exclude_indicators": "Leave out any light on a device that also has a switch: smart plugs and relays often expose their status LED as a light. Add a lamp that is wrongly left out to the extra entities.",
           "learn_only_human": "Ignore light changes made by automations and scripts."
         }
       },
       "learning_preview": {
         "title": "Learning preview",
-        "description": "LumaPresence will learn from **{count}** entities. Showing {shown}:\n\n{entities}"
+        "description": "LumaPresence will learn from **{count}** entities. Showing {shown}:\n\n{entities}\n\n**Indicator LEDs left out automatically.** If one of them is a real lamp, add it to the extra entities:\n\n{indicators}"
       },
       "presence": {
         "title": "People and alarm",
@@ -80,6 +82,7 @@
           "learning_preview": "Learning preview",
           "presence": "People and alarm",
           "sequences": "Night sequences",
+          "monitoring": "Monitoring",
           "save": "Save"
         }
       },
@@ -112,6 +115,7 @@
           "learn_areas": "Indoor areas",
           "learn_extra": "Extra entities",
           "learn_exclude": "Excluded entities",
+          "learn_auto_exclude_indicators": "Automatically exclude indicator LEDs",
           "learn_only_human": "Learn only from human actions"
         },
         "data_description": {
@@ -119,12 +123,13 @@
           "learn_areas": "Indoor areas that do not belong to any of the floors above.",
           "learn_extra": "For example relays exposed as switches, or lamps without an area.",
           "learn_exclude": "These entities are never learned.",
+          "learn_auto_exclude_indicators": "Leave out any light on a device that also has a switch: smart plugs and relays often expose their status LED as a light. Add a lamp that is wrongly left out to the extra entities.",
           "learn_only_human": "Ignore light changes made by automations and scripts."
         }
       },
       "learning_preview": {
         "title": "Learning preview",
-        "description": "LumaPresence will learn from **{count}** entities. Showing {shown}:\n\n{entities}"
+        "description": "LumaPresence will learn from **{count}** entities. Showing {shown}:\n\n{entities}\n\n**Indicator LEDs left out automatically.** If one of them is a real lamp, add it to the extra entities:\n\n{indicators}"
       },
       "presence": {
         "title": "People and alarm",
@@ -156,6 +161,16 @@
           "step_delay_max": "Time between one light and the next while walking.",
           "dwell_min": "Time the destination light stays on before walking back.",
           "dwell_max": "Time the destination light stays on before walking back."
+        }
+      },
+      "monitoring": {
+        "title": "Monitoring",
+        "description": "Raise a Repairs issue, and fire the `luma_presence_light_unavailable` event, when a simulation or route light stays unavailable.",
+        "data": {
+          "unavailable_alert_minutes": "Alert if a light is unavailable for (minutes)"
+        },
+        "data_description": {
+          "unavailable_alert_minutes": "0 turns the alerts off."
         }
       }
     },
@@ -301,7 +316,20 @@
         "name": "Simulating"
       },
       "learning_active": {
-        "name": "Learning"
+        "name": "Learning",
+        "state_attributes": {
+          "paused_reasons": {
+            "name": "Paused reasons",
+            "state": {
+              "simulation_enabled": "Simulation enabled",
+              "simulation_test": "Test with people at home",
+              "alarm_armed_away": "Alarm armed away",
+              "nobody_home": "Nobody at home",
+              "paused": "Paused manually",
+              "return_margin": "Return margin"
+            }
+          }
+        }
       },
       "sequence_running": {
         "name": "Sequence running"
@@ -344,6 +372,12 @@
         "off_now": "Turn them off at once",
         "off_gradual": "Turn them off gradually",
         "keep_if_night": "Keep them on at night"
+      }
+    },
+    "light_role": {
+      "options": {
+        "simulation": "simulation light",
+        "route": "route"
       }
     }
   },
@@ -409,6 +443,10 @@
     "missing_entities": {
       "title": "LumaPresence: missing entities",
       "description": "These entities configured in {title} no longer exist: {entities}. Update the integration options."
+    },
+    "light_unavailable": {
+      "title": "LumaPresence: \"{entity}\" is unavailable",
+      "description": "{entity} (`{entity_id}`) has been unavailable since {since}. LumaPresence uses it as: {roles}. While it is unavailable, the simulation cannot switch it. Check the device; this issue disappears as soon as the light is back."
     }
   },
   "exceptions": {

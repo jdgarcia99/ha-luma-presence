@@ -32,6 +32,7 @@
           "learn_areas": "Áreas interiores",
           "learn_extra": "Entidades extra",
           "learn_exclude": "Entidades excluidas",
+          "learn_auto_exclude_indicators": "Excluir automáticamente los LED indicadores",
           "learn_only_human": "Aprender solo de acciones humanas"
         },
         "data_description": {
@@ -39,12 +40,13 @@
           "learn_areas": "Áreas interiores que no pertenecen a ninguna de las plantas anteriores.",
           "learn_extra": "Por ejemplo, relés que aparecen como interruptores o lámparas sin área.",
           "learn_exclude": "Nunca se aprende de estas entidades.",
+          "learn_auto_exclude_indicators": "Deja fuera cualquier luz de un dispositivo que también tenga un interruptor: los enchufes y relés inteligentes suelen mostrar su LED de estado como una luz. Si se deja fuera una lámpara por error, añádela a las entidades extra.",
           "learn_only_human": "Ignora los cambios de luces hechos por automatizaciones y scripts."
         }
       },
       "learning_preview": {
         "title": "Vista previa del aprendizaje",
-        "description": "LumaPresence aprenderá de **{count}** entidades. Se muestran {shown}:\n\n{entities}"
+        "description": "LumaPresence aprenderá de **{count}** entidades. Se muestran {shown}:\n\n{entities}\n\n**LED indicadores excluidos automáticamente.** Si alguno es una lámpara de verdad, añádelo a las entidades extra:\n\n{indicators}"
       },
       "presence": {
         "title": "Personas y alarma",
@@ -80,6 +82,7 @@
           "learning_preview": "Vista previa del aprendizaje",
           "presence": "Personas y alarma",
           "sequences": "Secuencias nocturnas",
+          "monitoring": "Supervisión",
           "save": "Guardar"
         }
       },
@@ -112,6 +115,7 @@
           "learn_areas": "Áreas interiores",
           "learn_extra": "Entidades extra",
           "learn_exclude": "Entidades excluidas",
+          "learn_auto_exclude_indicators": "Excluir automáticamente los LED indicadores",
           "learn_only_human": "Aprender solo de acciones humanas"
         },
         "data_description": {
@@ -119,12 +123,13 @@
           "learn_areas": "Áreas interiores que no pertenecen a ninguna de las plantas anteriores.",
           "learn_extra": "Por ejemplo, relés que aparecen como interruptores o lámparas sin área.",
           "learn_exclude": "Nunca se aprende de estas entidades.",
+          "learn_auto_exclude_indicators": "Deja fuera cualquier luz de un dispositivo que también tenga un interruptor: los enchufes y relés inteligentes suelen mostrar su LED de estado como una luz. Si se deja fuera una lámpara por error, añádela a las entidades extra.",
           "learn_only_human": "Ignora los cambios de luces hechos por automatizaciones y scripts."
         }
       },
       "learning_preview": {
         "title": "Vista previa del aprendizaje",
-        "description": "LumaPresence aprenderá de **{count}** entidades. Se muestran {shown}:\n\n{entities}"
+        "description": "LumaPresence aprenderá de **{count}** entidades. Se muestran {shown}:\n\n{entities}\n\n**LED indicadores excluidos automáticamente.** Si alguno es una lámpara de verdad, añádelo a las entidades extra:\n\n{indicators}"
       },
       "presence": {
         "title": "Personas y alarma",
@@ -156,6 +161,16 @@
           "step_delay_max": "Tiempo entre una luz y la siguiente durante el recorrido.",
           "dwell_min": "Tiempo que la luz del destino sigue encendida antes de volver.",
           "dwell_max": "Tiempo que la luz del destino sigue encendida antes de volver."
+        }
+      },
+      "monitoring": {
+        "title": "Supervisión",
+        "description": "Crea un aviso en Reparaciones, y lanza el evento `luma_presence_light_unavailable`, cuando una luz de simulación o de un recorrido sigue sin estar disponible.",
+        "data": {
+          "unavailable_alert_minutes": "Avisar si una luz no está disponible durante (minutos)"
+        },
+        "data_description": {
+          "unavailable_alert_minutes": "0 desactiva los avisos."
         }
       }
     },
@@ -301,7 +316,20 @@
         "name": "Simulando"
       },
       "learning_active": {
-        "name": "Aprendiendo"
+        "name": "Aprendiendo",
+        "state_attributes": {
+          "paused_reasons": {
+            "name": "Motivos de la pausa",
+            "state": {
+              "simulation_enabled": "Simulación activada",
+              "simulation_test": "Prueba con gente en casa",
+              "alarm_armed_away": "Alarma armada en ausente",
+              "nobody_home": "Nadie en casa",
+              "paused": "Pausado manualmente",
+              "return_margin": "Margen tras el regreso"
+            }
+          }
+        }
       },
       "sequence_running": {
         "name": "Secuencia en curso"
@@ -344,6 +372,12 @@
         "off_now": "Apagarlas de golpe",
         "off_gradual": "Apagarlas poco a poco",
         "keep_if_night": "Dejarlas si es de noche"
+      }
+    },
+    "light_role": {
+      "options": {
+        "simulation": "luz de simulación",
+        "route": "recorrido"
       }
     }
   },
@@ -409,6 +443,10 @@
     "missing_entities": {
       "title": "LumaPresence: faltan entidades",
       "description": "Estas entidades configuradas en {title} ya no existen: {entities}. Actualiza las opciones de la integración."
+    },
+    "light_unavailable": {
+      "title": "LumaPresence: «{entity}» no está disponible",
+      "description": "{entity} (`{entity_id}`) no está disponible desde {since}. LumaPresence la usa como: {roles}. Mientras no esté disponible, la simulación no puede encenderla ni apagarla. Revisa el dispositivo; este aviso desaparece en cuanto la luz vuelva a estar disponible."
     }
   },
   "exceptions": {

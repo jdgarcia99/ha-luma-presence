@@ -5,6 +5,9 @@ exposed as ``switch.*``, and many ``light.*`` entities are not room lights at
 all (status LEDs, appliance lights). The scope therefore starts from the
 ``light.*`` entities of the indoor areas, filters out anything that does not
 look like a real lamp, and lets the owner add or remove entities by hand.
+
+Smart plugs and relays often expose their status LED as a ``light`` on the
+same device as the plug's ``switch``; those indicator LEDs are left out too.
 """
 
 from __future__ import annotations
@@ -21,11 +24,17 @@ from homeassistant.helpers import (
 )
 
 from .const import (
+    CONF_AUTO_EXCLUDE_INDICATORS,
     CONF_LEARN_AREAS,
     CONF_LEARN_EXCLUDE,
     CONF_LEARN_EXTRA,
     CONF_LEARN_FLOORS,
     CONF_LIGHTS,
+    DEFAULT_AUTO_EXCLUDE_INDICATORS,
+    EXCLUDED_CATEGORY,
+    EXCLUDED_DISABLED,
+    EXCLUDED_HIDDEN,
+    EXCLUDED_INDICATOR,
 )
 
 
@@ -34,8 +43,27 @@ class LearningScope:
     """Resolved learning scope."""
 
     entities: list[str] = field(default_factory=list)
-    # Indoor lights dropped because they are disabled, hidden or not a lamp.
-    auto_excluded: list[str] = field(default_factory=list)
+    # Indoor lights left out automatically, and why (EXCLUDED_* reasons).
+    reasons: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def auto_excluded(self) -> list[str]:
+        """Indoor lights left out automatically."""
+        return sorted(self.reasons)
+
+
+def _exclusion_reason(
+    entry: er.RegistryEntry, switch_devices: set[str], indicators: bool
+) -> str | None:
+    if entry.disabled:
+        return EXCLUDED_DISABLED
+    if entry.hidden:
+        return EXCLUDED_HIDDEN
+    if entry.entity_category is not None:
+        return EXCLUDED_CATEGORY
+    if indicators and entry.device_id in switch_devices:
+        return EXCLUDED_INDICATOR
+    return None
 
 
 def entity_area_id(hass: HomeAssistant, entity_id: str) -> str | None:
@@ -74,17 +102,28 @@ def resolve_learning_scope(
     """Resolve the entities to learn from, and those filtered out automatically."""
     indoor = _indoor_areas(hass, options)
     devices = dr.async_get(hass)
+    entities = er.async_get(hass).entities.values()
+    indicators = bool(
+        options.get(CONF_AUTO_EXCLUDE_INDICATORS, DEFAULT_AUTO_EXCLUDE_INDICATORS)
+    )
+    # Devices with a switch: a light on them is the switch's status LED.
+    switch_devices = {
+        entry.device_id
+        for entry in entities
+        if entry.domain == "switch" and entry.device_id
+    }
     candidates: set[str] = set()
-    dropped: set[str] = set()
+    dropped: dict[str, str] = {}
     if indoor:
-        for entry in er.async_get(hass).entities.values():
+        for entry in entities:
             if entry.domain != "light" or _entry_area_id(devices, entry) not in indoor:
                 continue
-            if entry.disabled or entry.hidden or entry.entity_category is not None:
-                dropped.add(entry.entity_id)
+            if reason := _exclusion_reason(entry, switch_devices, indicators):
+                dropped[entry.entity_id] = reason
             else:
                 candidates.add(entry.entity_id)
 
+    # Extras and simulation lights always win over the automatic exclusions.
     selected = (
         candidates
         | set(options.get(CONF_LEARN_EXTRA) or [])
@@ -92,7 +131,12 @@ def resolve_learning_scope(
     )
     selected -= set(options.get(CONF_LEARN_EXCLUDE) or [])
     return LearningScope(
-        entities=sorted(selected), auto_excluded=sorted(dropped - selected)
+        entities=sorted(selected),
+        reasons={
+            entity_id: dropped[entity_id]
+            for entity_id in sorted(dropped)
+            if entity_id not in selected
+        },
     )
 
 

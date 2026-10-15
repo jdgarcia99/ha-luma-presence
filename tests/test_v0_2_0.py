@@ -422,7 +422,7 @@ async def test_light_sensors_and_device(hass: HomeAssistant, fake_lights) -> Non
     learning = hass.states.get("sensor.luma_presence_learning_lights")
     assert learning.state == str(len(LIGHTS))
     assert learning.attributes["entities"] == sorted(LIGHTS)
-    assert learning.attributes["auto_excluded"] == []
+    assert learning.attributes["auto_excluded"] == {}
 
     registry = er.async_get(hass)
     for entity_id in (

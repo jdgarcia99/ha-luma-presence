@@ -21,6 +21,8 @@ CONF_LEARN_FLOORS: Final = "learn_floors"
 CONF_LEARN_AREAS: Final = "learn_areas"
 CONF_LEARN_EXTRA: Final = "learn_extra"
 CONF_LEARN_EXCLUDE: Final = "learn_exclude"
+CONF_AUTO_EXCLUDE_INDICATORS: Final = "learn_auto_exclude_indicators"
+CONF_UNAVAILABLE_ALERT_MINUTES: Final = "unavailable_alert_minutes"
 
 CONF_STEP_DELAY_MIN: Final = "step_delay_min"
 CONF_STEP_DELAY_MAX: Final = "step_delay_max"
@@ -34,6 +36,14 @@ DEFAULT_STEP_DELAY_MIN: Final = 10.0
 DEFAULT_STEP_DELAY_MAX: Final = 30.0
 DEFAULT_DWELL_MIN: Final = 2.0
 DEFAULT_DWELL_MAX: Final = 5.0
+DEFAULT_AUTO_EXCLUDE_INDICATORS: Final = True
+DEFAULT_UNAVAILABLE_ALERT_MINUTES: Final = 60
+
+# Why the learning scope left out an indoor light
+EXCLUDED_DISABLED: Final = "disabled"
+EXCLUDED_HIDDEN: Final = "hidden"
+EXCLUDED_CATEGORY: Final = "entity_category"
+EXCLUDED_INDICATOR: Final = "indicator_led"
 
 # Night routes (config subentries)
 SUBENTRY_ROUTE: Final = "route"
@@ -75,6 +85,8 @@ EVENT_START: Final = "start"
 EVENT_END: Final = "end"
 
 EVENT_ACTION: Final = f"{DOMAIN}_action"
+EVENT_LIGHT_UNAVAILABLE: Final = f"{DOMAIN}_light_unavailable"
+EVENT_LIGHT_AVAILABLE: Final = f"{DOMAIN}_light_available"
 
 MAX_START_JITTER_MIN: Final = 30
 MAX_END_JITTER_MIN: Final = 30
@@ -86,6 +98,8 @@ REASON_ALARM: Final = "alarm_armed_away"
 REASON_AWAY: Final = "nobody_home"
 REASON_PAUSED: Final = "paused"
 REASON_MARGIN: Final = "return_margin"
+# Simulation turned on with someone at home: a pause, not an absence.
+REASON_SIMULATION_TEST: Final = "simulation_test"
 ABSENCE_REASONS: Final = frozenset({REASON_SIMULATION, REASON_ALARM, REASON_AWAY})
 
 LONG_ABSENCE: Final = timedelta(hours=48)

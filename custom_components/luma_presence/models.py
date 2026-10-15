@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from .engine import SimulationEngine
     from .learning import LearningGate
     from .light_control import LightController
+    from .monitor import AvailabilityMonitor
     from .sequences import SequenceEngine
 
 
@@ -116,6 +117,7 @@ class LumaRuntime:
     engine: SimulationEngine
     sequences: SequenceEngine
     learning: LearningGate
+    monitor: AvailabilityMonitor
 
     async def async_setting_changed(self, key: str) -> None:
         """React to a setting changed from one of the config entities."""

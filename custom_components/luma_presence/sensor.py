@@ -190,5 +190,5 @@ class LearningLightsSensor(LumaEntity, SensorEntity):
         learning = self._runtime.learning
         return {
             "entities": list(learning.entities),
-            "auto_excluded": list(learning.auto_excluded),
+            "auto_excluded": dict(learning.auto_excluded),
         }

@@ -26,7 +26,7 @@ from custom_components.luma_presence.const import (
     DOMAIN,
     REASON_ALARM,
     REASON_MARGIN,
-    REASON_SIMULATION,
+    REASON_SIMULATION_TEST,
     STOP_KEEP_ON,
     STOP_OFF_NOW,
 )
@@ -138,8 +138,8 @@ async def test_time_mode_simulation_and_ownership(
     assert hass.states.get("light.bedroom").state == STATE_ON
     assert engine.owned_lights == ["light.bedroom"]
 
-    # Learning is closed while the simulation is enabled.
-    assert REASON_SIMULATION in entry.runtime_data.learning.reasons
+    # Learning is closed while the simulation is enabled (a test: someone is home).
+    assert REASON_SIMULATION_TEST in entry.runtime_data.learning.reasons
 
     # A person turns on another light and touches an owned light.
     hass.states.async_set("light.hall", STATE_ON, context=Context(user_id="abc"))

@@ -45,6 +45,7 @@ from homeassistant.helpers.selector import (
 
 from .const import (
     CONF_ALARM,
+    CONF_AUTO_EXCLUDE_INDICATORS,
     CONF_DESTINATION,
     CONF_DWELL_MAX,
     CONF_DWELL_MIN,
@@ -63,6 +64,8 @@ from .const import (
     CONF_REAR_LIGHTS,
     CONF_STEP_DELAY_MAX,
     CONF_STEP_DELAY_MIN,
+    CONF_UNAVAILABLE_ALERT_MINUTES,
+    DEFAULT_AUTO_EXCLUDE_INDICATORS,
     DEFAULT_DWELL_MAX,
     DEFAULT_DWELL_MIN,
     DEFAULT_HUMAN_ONLY,
@@ -71,11 +74,13 @@ from .const import (
     DEFAULT_NAME,
     DEFAULT_STEP_DELAY_MAX,
     DEFAULT_STEP_DELAY_MIN,
+    DEFAULT_UNAVAILABLE_ALERT_MINUTES,
     DOMAIN,
+    EXCLUDED_INDICATOR,
     PREVIEW_MAX_ENTITIES,
     SUBENTRY_ROUTE,
 )
-from .scope import entity_area_id, resolve_learning_entities
+from .scope import entity_area_id, resolve_learning_scope
 
 STEP_SIMULATION_LIGHTS = "simulation_lights"
 STEP_FACADES = "facades"
@@ -83,6 +88,7 @@ STEP_LEARNING = "learning"
 STEP_LEARNING_PREVIEW = "learning_preview"
 STEP_PRESENCE = "presence"
 STEP_SEQUENCES = "sequences"
+STEP_MONITORING = "monitoring"
 STEP_SAVE = "save"
 MENU_OPTIONS = [
     STEP_SIMULATION_LIGHTS,
@@ -91,8 +97,10 @@ MENU_OPTIONS = [
     STEP_LEARNING_PREVIEW,
     STEP_PRESENCE,
     STEP_SEQUENCES,
+    STEP_MONITORING,
     STEP_SAVE,
 ]
+PREVIEW_MAX_INDICATORS = 20
 
 _LIGHT_SELECTOR = EntitySelector(
     EntitySelectorConfig(domain=["light", "switch"], multiple=True)
@@ -129,9 +137,11 @@ def _default_options(hass: HomeAssistant) -> dict[str, Any]:
         CONF_LEARN_EXTRA: [],
         CONF_LEARN_EXCLUDE: [],
         CONF_HUMAN_ONLY: DEFAULT_HUMAN_ONLY,
+        CONF_AUTO_EXCLUDE_INDICATORS: DEFAULT_AUTO_EXCLUDE_INDICATORS,
         CONF_PERSONS: [],
         CONF_MARGIN_BEFORE: DEFAULT_MARGIN_BEFORE,
         CONF_MARGIN_AFTER: DEFAULT_MARGIN_AFTER,
+        CONF_UNAVAILABLE_ALERT_MINUTES: DEFAULT_UNAVAILABLE_ALERT_MINUTES,
     }
 
 
@@ -180,6 +190,12 @@ def _learning_schema(options: Mapping[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_LEARN_EXCLUDE, description=_suggested(options, CONF_LEARN_EXCLUDE)
             ): _LIGHT_SELECTOR,
+            vol.Required(
+                CONF_AUTO_EXCLUDE_INDICATORS,
+                default=options.get(
+                    CONF_AUTO_EXCLUDE_INDICATORS, DEFAULT_AUTO_EXCLUDE_INDICATORS
+                ),
+            ): BooleanSelector(),
             vol.Required(
                 CONF_HUMAN_ONLY,
                 default=options.get(CONF_HUMAN_ONLY, DEFAULT_HUMAN_ONLY),
@@ -235,6 +251,19 @@ def _sequences_schema(options: Mapping[str, Any]) -> vol.Schema:
     )
 
 
+def _monitoring_schema(options: Mapping[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_UNAVAILABLE_ALERT_MINUTES,
+                default=options.get(
+                    CONF_UNAVAILABLE_ALERT_MINUTES, DEFAULT_UNAVAILABLE_ALERT_MINUTES
+                ),
+            ): _number(1440, "min"),
+        }
+    )
+
+
 def _validate_lights(options: Mapping[str, Any]) -> dict[str, str]:
     if not options.get(CONF_LIGHTS):
         return {CONF_LIGHTS: "no_lights"}
@@ -257,12 +286,14 @@ def _validate_facades(options: Mapping[str, Any]) -> dict[str, str]:
 def _preview_placeholders(
     hass: HomeAssistant, options: Mapping[str, Any]
 ) -> dict[str, str]:
-    """Markdown list of the entities that will be learned."""
-    entities = resolve_learning_entities(hass, options)
+    """Markdown lists of the entities that will be learned and of the
+    indicator LEDs left out automatically."""
+    scope = resolve_learning_scope(hass, options)
+    entities = scope.entities
     areas = ar.async_get(hass)
     registry = er.async_get(hass)
-    lines = []
-    for entity_id in entities[:PREVIEW_MAX_ENTITIES]:
+
+    def line(entity_id: str) -> str:
         state = hass.states.get(entity_id)
         entry = registry.async_get(entity_id)
         name = (
@@ -270,18 +301,25 @@ def _preview_placeholders(
             or (entry.name or entry.original_name if entry else None)
             or entity_id
         )
-        line = f"- {name} (`{entity_id}`)"
+        text = f"- {name} (`{entity_id}`)"
         if (area_id := entity_area_id(hass, entity_id)) and (
             area := areas.async_get_area(area_id)
         ):
-            line += f" · {area.name}"
-        lines.append(line)
+            text += f" · {area.name}"
+        return text
+
+    lines = [line(entity_id) for entity_id in entities[:PREVIEW_MAX_ENTITIES]]
     if len(entities) > PREVIEW_MAX_ENTITIES:
         lines.append("- …")
+    indicators = [e for e, why in scope.reasons.items() if why == EXCLUDED_INDICATOR]
+    indicator_lines = [line(entity_id) for entity_id in indicators[:PREVIEW_MAX_INDICATORS]]
+    if len(indicators) > PREVIEW_MAX_INDICATORS:
+        indicator_lines.append("- …")
     return {
         "count": str(len(entities)),
         "shown": str(min(len(entities), PREVIEW_MAX_ENTITIES)),
         "entities": "\n".join(lines) or "-",
+        "indicators": "\n".join(indicator_lines) or "-",
     }
 
 
@@ -452,6 +490,17 @@ class LumaPresenceOptionsFlow(_LumaSteps, OptionsFlow):
             return await self.async_step_init()
         return self.async_show_form(
             step_id=STEP_SEQUENCES, data_schema=_sequences_schema(self._options)
+        )
+
+    async def async_step_monitoring(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Repair issues for lights that stay unavailable."""
+        if user_input is not None:
+            self._update(STEP_MONITORING, user_input)
+            return await self.async_step_init()
+        return self.async_show_form(
+            step_id=STEP_MONITORING, data_schema=_monitoring_schema(self._options)
         )
 
     async def async_step_save(

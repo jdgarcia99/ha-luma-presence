@@ -6,6 +6,8 @@ Rules
 -----
 * Learning stops while the simulation is enabled, the alarm is armed away,
   nobody is home, or the user paused it manually.
+* The simulation enabled while someone is home is a test, not an absence:
+  learning pauses as with a manual pause, with no return margin.
 * Events are kept in a pending buffer for ``margin_before`` hours before
   being committed, so the hours just before a departure can be discarded.
 * After a return, learning stays closed for ``margin_after`` hours. After
@@ -72,6 +74,7 @@ from .const import (
     REASON_MARGIN,
     REASON_PAUSED,
     REASON_SIMULATION,
+    REASON_SIMULATION_TEST,
     SCOPE_DEBOUNCE_S,
     STORE_MAX_DAYS,
     STORE_VERSION,
@@ -123,7 +126,8 @@ class LearningGate:
         self._engine = engine
         self._config = config
         self.entities: list[str] = []
-        self.auto_excluded: list[str] = []
+        # Indoor lights left out automatically: {entity_id: reason}
+        self.auto_excluded: dict[str, str] = {}
         self._persons: list[str] = list(config.get(CONF_PERSONS, []))
         self._alarm: str | None = config.get(CONF_ALARM) or None
         self._margin_before = timedelta(
@@ -277,6 +281,13 @@ class LearningGate:
             reasons.add(REASON_AWAY)
         if self._settings.learning_paused:
             reasons.add(REASON_PAUSED)
+        if (
+            reasons & ABSENCE_REASONS == {REASON_SIMULATION}
+            and self._absence_since is None
+            and self._somebody_home()
+        ):
+            # A test with people at home: pause learning, it is not an absence.
+            reasons = (reasons - {REASON_SIMULATION}) | {REASON_SIMULATION_TEST}
 
         if reasons & ABSENCE_REASONS:
             if self._absence_since is None:
@@ -286,7 +297,7 @@ class LearningGate:
                 self._pending.clear()
                 self._segment_start = None
         elif reasons:
-            # Manual pause only: keep what was observed until now.
+            # Manual pause or test: keep what was observed until now.
             if self._segment_start is not None:
                 self._commit_until(now)
                 self._segment_start = None
@@ -359,7 +370,7 @@ class LearningGate:
     def _async_refresh_scope(self) -> None:
         """Resolve the learning scope and follow its entities."""
         scope = resolve_learning_scope(self.hass, self._config)
-        self.auto_excluded = scope.auto_excluded
+        self.auto_excluded = scope.reasons
         if scope.entities != self.entities or self._unsub_lights is None:
             self.entities = scope.entities
             self._untrack_lights()
@@ -373,6 +384,13 @@ class LearningGate:
         if self._unsub_lights is not None:
             self._unsub_lights()
             self._unsub_lights = None
+
+    def _somebody_home(self) -> bool:
+        return any(
+            (state := self.hass.states.get(person)) is not None
+            and state.state == STATE_HOME
+            for person in self._persons
+        )
 
     def _everybody_away(self) -> bool:
         for person in self._persons:
