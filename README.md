@@ -117,6 +117,7 @@ The user interface is available in English and Spanish. Contributions for other 
 ## Roadmap
 
 - **Phase 2**: night sequences (v0.3.0), then Replay mode (replays your real usage from previous days).
+- **After Replay (optional)**: alarm integration, configurable from LumaPresence: arming the alarm in away mode turns the simulation on, and disarming it stops the simulation.
 - **Phase 3**: Dream mode (new, believable patterns generated from what has been learned, with optional AI), repairs and diagnostics.
 
 ## Development
