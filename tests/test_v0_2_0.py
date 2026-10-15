@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import json
+from pathlib import Path
 from typing import Any
 
 from freezegun.api import FrozenDateTimeFactory
@@ -437,4 +439,5 @@ async def test_light_sensors_and_device(hass: HomeAssistant, fake_lights) -> Non
         device = devices.async_get_device_by_identifier(identifier, entry.entry_id)
     else:
         device = devices.async_get_device(identifiers={identifier})
-    assert device.sw_version == "0.2.0"
+    manifest = Path(__file__).parents[1] / "custom_components" / DOMAIN / "manifest.json"
+    assert device.sw_version == json.loads(manifest.read_text())["version"]
