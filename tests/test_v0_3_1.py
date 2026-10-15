@@ -14,7 +14,13 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from homeassistant.config_entries import ConfigSubentryData
-from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import (
+    STATE_OFF,
+    STATE_ON,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    EntityCategory,
+)
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.helpers import (
     area_registry as ar,
@@ -149,6 +155,90 @@ async def test_indicator_leds_are_excluded(
     # Option off: kept.
     scope = resolve_learning_scope(hass, {**options, CONF_AUTO_EXCLUDE_INDICATORS: False})
     assert scope.entities == sorted([plugs["lamp"], plugs["led"]])
+
+
+async def test_setting_switches_do_not_count(
+    hass: HomeAssistant, plugs: dict[str, str]
+) -> None:
+    """A WLED-like light whose device only has setting switches is a real light."""
+    devices = dr.async_get(hass)
+    entities = er.async_get(hass)
+    other = next(iter(hass.config_entries.async_entries("test")))
+    wled = devices.async_get_or_create(
+        config_entry_id=other.entry_id, identifiers={("test", "wled_tv")}
+    )
+    salon = ar.async_get(hass).async_get_area_by_name("Salon")
+    devices.async_update_device(wled.id, area_id=salon.id)
+    # Brightness only, so only the switch rule decides.
+    light = entities.async_get_or_create(
+        "light", "test", "wled_tv", device_id=wled.id
+    ).entity_id
+    for name in ("nightlight", "sync_send", "sync_receive", "reverse", "freeze"):
+        entities.async_get_or_create(
+            "switch",
+            "test",
+            f"wled_{name}",
+            device_id=wled.id,
+            entity_category=EntityCategory.CONFIG,
+        )
+    entities.async_get_or_create(
+        "switch",
+        "test",
+        "wled_disabled",
+        device_id=wled.id,
+        disabled_by=er.RegistryEntryDisabler.INTEGRATION,
+    )
+
+    scope = resolve_learning_scope(
+        hass, {CONF_LIGHTS: [], CONF_LEARN_FLOORS: [plugs["floor"]]}
+    )
+    assert light in scope.entities
+    assert light not in scope.reasons
+    # The plug with a main switch is still an indicator LED.
+    assert scope.reasons == {plugs["led"]: "indicator_led"}
+
+
+async def test_color_lights_are_never_indicators(
+    hass: HomeAssistant, plugs: dict[str, str]
+) -> None:
+    """A light with color or color temperature on a device with a main switch is kept."""
+    devices = dr.async_get(hass)
+    entities = er.async_get(hass)
+    other = next(iter(hass.config_entries.async_entries("test")))
+    salon = ar.async_get(hass).async_get_area_by_name("Salon")
+    device = devices.async_get_or_create(
+        config_entry_id=other.entry_id, identifiers={("test", "rgb_plug")}
+    )
+    devices.async_update_device(device.id, area_id=salon.id)
+    entities.async_get_or_create("switch", "test", "rgb_relay", device_id=device.id)
+    # Color modes from the registry capabilities...
+    rgb = entities.async_get_or_create(
+        "light",
+        "test",
+        "rgb",
+        device_id=device.id,
+        capabilities={"supported_color_modes": ["rgb"]},
+    ).entity_id
+    # ...or from the state.
+    white = entities.async_get_or_create(
+        "light", "test", "white", device_id=device.id
+    ).entity_id
+    hass.states.async_set(white, STATE_OFF, {"supported_color_modes": ["color_temp"]})
+    # A dimmable LED on the same device is still an indicator.
+    led = entities.async_get_or_create(
+        "light",
+        "test",
+        "status",
+        device_id=device.id,
+        capabilities={"supported_color_modes": ["brightness"]},
+    ).entity_id
+
+    scope = resolve_learning_scope(
+        hass, {CONF_LIGHTS: [], CONF_LEARN_FLOORS: [plugs["floor"]]}
+    )
+    assert rgb in scope.entities
+    assert white in scope.entities
+    assert scope.reasons[led] == "indicator_led"
 
 
 async def test_exclusion_reasons_in_sensor_and_preview(

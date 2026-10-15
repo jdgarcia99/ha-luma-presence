@@ -40,7 +40,7 @@
           "learn_areas": "Indoor areas that do not belong to any of the floors above.",
           "learn_extra": "For example relays exposed as switches, or lamps without an area.",
           "learn_exclude": "These entities are never learned.",
-          "learn_auto_exclude_indicators": "Leave out any light on a device that also has a switch: smart plugs and relays often expose their status LED as a light. Add a lamp that is wrongly left out to the extra entities.",
+          "learn_auto_exclude_indicators": "Leave out a light whose device also has a main switch: smart plugs and relays often expose their status LED as a light. Setting switches (disabled, configuration or diagnostic) do not count, and lights with color or color temperature are never left out. Add a lamp that is wrongly left out to the extra entities.",
           "learn_only_human": "Ignore light changes made by automations and scripts."
         }
       },
@@ -123,7 +123,7 @@
           "learn_areas": "Indoor areas that do not belong to any of the floors above.",
           "learn_extra": "For example relays exposed as switches, or lamps without an area.",
           "learn_exclude": "These entities are never learned.",
-          "learn_auto_exclude_indicators": "Leave out any light on a device that also has a switch: smart plugs and relays often expose their status LED as a light. Add a lamp that is wrongly left out to the extra entities.",
+          "learn_auto_exclude_indicators": "Leave out a light whose device also has a main switch: smart plugs and relays often expose their status LED as a light. Setting switches (disabled, configuration or diagnostic) do not count, and lights with color or color temperature are never left out. Add a lamp that is wrongly left out to the extra entities.",
           "learn_only_human": "Ignore light changes made by automations and scripts."
         }
       },

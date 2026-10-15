@@ -38,7 +38,7 @@ LumaPresence learns from every real indoor light, not only from the simulation l
 
 1. Every `light.*` entity in the selected floors and areas. An entity's own area wins; otherwise the area of its device is used.
 2. Disabled and hidden entities, and configuration or diagnostic entities, are left out automatically. This removes status LEDs, access point LEDs and similar lights.
-3. With *Automatically exclude indicator LEDs* (on by default), a light is also left out when its device has a `switch.*` entity: smart plugs and relays (ESPHome, Shelly…) often expose their status LED as a light on the same device as the plug. The **Learning preview** lists these indicator LEDs so you can spot a real lamp among them.
+3. With *Automatically exclude indicator LEDs* (on by default), a light is also left out when its device has a main `switch.*` entity: smart plugs and relays (ESPHome, Shelly…) often expose their status LED as a light on the same device as the plug. Only enabled switches without an entity category count, so setting switches such as WLED's nightlight or sync switches do not; and a light that supports color or color temperature is never left out. The **Learning preview** lists these indicator LEDs so you can spot a real lamp among them.
 4. **Extra entities** are added, even if a rule above left them out. Use them for room lights exposed as `switch.*` relays, for lamps without an area, and for a lamp wrongly taken for an indicator LED.
 5. The simulation lights are always added.
 6. **Excluded entities** are removed. Use them for lights that are not room lights, such as fridge lights or Christmas lights.

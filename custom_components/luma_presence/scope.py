@@ -8,6 +8,8 @@ look like a real lamp, and lets the owner add or remove entities by hand.
 
 Smart plugs and relays often expose their status LED as a ``light`` on the
 same device as the plug's ``switch``; those indicator LEDs are left out too.
+Only enabled switches without an entity category count, and a light with
+color or color temperature is never taken for an indicator LED.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from homeassistant.components.light import ATTR_SUPPORTED_COLOR_MODES, ColorMode
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import (
     area_registry as ar,
@@ -37,6 +40,17 @@ from .const import (
     EXCLUDED_INDICATOR,
 )
 
+_COLOR_MODES = frozenset(
+    {
+        ColorMode.RGB,
+        ColorMode.RGBW,
+        ColorMode.RGBWW,
+        ColorMode.HS,
+        ColorMode.XY,
+        ColorMode.COLOR_TEMP,
+    }
+)
+
 
 @dataclass
 class LearningScope:
@@ -52,8 +66,21 @@ class LearningScope:
         return sorted(self.reasons)
 
 
+def _has_color(hass: HomeAssistant, entry: er.RegistryEntry) -> bool:
+    """Return True if a light supports color or color temperature."""
+    modes: Any = None
+    if (state := hass.states.get(entry.entity_id)) is not None:
+        modes = state.attributes.get(ATTR_SUPPORTED_COLOR_MODES)
+    if not modes and entry.capabilities:
+        modes = entry.capabilities.get(ATTR_SUPPORTED_COLOR_MODES)
+    return bool(set(modes or ()) & _COLOR_MODES)
+
+
 def _exclusion_reason(
-    entry: er.RegistryEntry, switch_devices: set[str], indicators: bool
+    hass: HomeAssistant,
+    entry: er.RegistryEntry,
+    switch_devices: set[str],
+    indicators: bool,
 ) -> str | None:
     if entry.disabled:
         return EXCLUDED_DISABLED
@@ -61,7 +88,9 @@ def _exclusion_reason(
         return EXCLUDED_HIDDEN
     if entry.entity_category is not None:
         return EXCLUDED_CATEGORY
-    if indicators and entry.device_id in switch_devices:
+    # Status LEDs are plain on/off or dimmable lights; a light with color or
+    # color temperature is a real lamp even if its device has a switch.
+    if indicators and entry.device_id in switch_devices and not _has_color(hass, entry):
         return EXCLUDED_INDICATOR
     return None
 
@@ -106,11 +135,16 @@ def resolve_learning_scope(
     indicators = bool(
         options.get(CONF_AUTO_EXCLUDE_INDICATORS, DEFAULT_AUTO_EXCLUDE_INDICATORS)
     )
-    # Devices with a switch: a light on them is the switch's status LED.
+    # Devices with a main switch: a light on them is the switch's status LED.
+    # Setting switches (disabled, or config/diagnostic) do not count: a WLED
+    # strip has several of them and is still a real light.
     switch_devices = {
         entry.device_id
         for entry in entities
-        if entry.domain == "switch" and entry.device_id
+        if entry.domain == "switch"
+        and entry.device_id
+        and not entry.disabled
+        and entry.entity_category is None
     }
     candidates: set[str] = set()
     dropped: dict[str, str] = {}
@@ -118,7 +152,7 @@ def resolve_learning_scope(
         for entry in entities:
             if entry.domain != "light" or _entry_area_id(devices, entry) not in indoor:
                 continue
-            if reason := _exclusion_reason(entry, switch_devices, indicators):
+            if reason := _exclusion_reason(hass, entry, switch_devices, indicators):
                 dropped[entry.entity_id] = reason
             else:
                 candidates.add(entry.entity_id)

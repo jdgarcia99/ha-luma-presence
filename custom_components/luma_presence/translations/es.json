@@ -40,7 +40,7 @@
           "learn_areas": "Áreas interiores que no pertenecen a ninguna de las plantas anteriores.",
           "learn_extra": "Por ejemplo, relés que aparecen como interruptores o lámparas sin área.",
           "learn_exclude": "Nunca se aprende de estas entidades.",
-          "learn_auto_exclude_indicators": "Deja fuera cualquier luz de un dispositivo que también tenga un interruptor: los enchufes y relés inteligentes suelen mostrar su LED de estado como una luz. Si se deja fuera una lámpara por error, añádela a las entidades extra.",
+          "learn_auto_exclude_indicators": "Deja fuera una luz cuyo dispositivo también tenga un interruptor principal: los enchufes y relés inteligentes suelen mostrar su LED de estado como una luz. Los interruptores de ajustes (deshabilitados, de configuración o de diagnóstico) no cuentan, y las luces con color o temperatura de color nunca se dejan fuera. Si se deja fuera una lámpara por error, añádela a las entidades extra.",
           "learn_only_human": "Ignora los cambios de luces hechos por automatizaciones y scripts."
         }
       },
@@ -123,7 +123,7 @@
           "learn_areas": "Áreas interiores que no pertenecen a ninguna de las plantas anteriores.",
           "learn_extra": "Por ejemplo, relés que aparecen como interruptores o lámparas sin área.",
           "learn_exclude": "Nunca se aprende de estas entidades.",
-          "learn_auto_exclude_indicators": "Deja fuera cualquier luz de un dispositivo que también tenga un interruptor: los enchufes y relés inteligentes suelen mostrar su LED de estado como una luz. Si se deja fuera una lámpara por error, añádela a las entidades extra.",
+          "learn_auto_exclude_indicators": "Deja fuera una luz cuyo dispositivo también tenga un interruptor principal: los enchufes y relés inteligentes suelen mostrar su LED de estado como una luz. Los interruptores de ajustes (deshabilitados, de configuración o de diagnóstico) no cuentan, y las luces con color o temperatura de color nunca se dejan fuera. Si se deja fuera una lámpara por error, añádela a las entidades extra.",
           "learn_only_human": "Ignora los cambios de luces hechos por automatizaciones y scripts."
         }
       },
