@@ -36,6 +36,28 @@ forget_period:
       selector:
         date:
 
+dream_preview:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: luma_presence
+
+get_heatmap:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: luma_presence
+    day_type:
+      required: true
+      selector:
+        select:
+          translation_key: day_type
+          options:
+            - weekday
+            - weekend
+
 run_sequence:
   fields:
     config_entry_id:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from homeassistant.components.number import NumberMode, RestoreNumber
-from homeassistant.const import EntityCategory, UnitOfTime
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -35,6 +35,9 @@ NUMBERS: tuple[_NumberDef, ...] = (
     _NumberDef("sequence_max_interval", 5, 360, 5, UnitOfTime.MINUTES, True),
     _NumberDef("replay_jitter", 0, 30, 1, UnitOfTime.MINUTES, True),
     _NumberDef("replay_min_events", 0, 50, 1, None, True),
+    _NumberDef("dream_min_days", 7, 60, 1, None, True),
+    _NumberDef("dream_min_score", 0, 100, 1, PERCENTAGE, True),
+    _NumberDef("dream_half_life", 1, 120, 1, UnitOfTime.DAYS, True),
 )
 
 

@@ -63,6 +63,8 @@ class LightController:
         self.hass = hass
         self._entry_id = entry_id
         self.last_action: dict[str, Any] | None = None
+        # Switch commands that failed since start (for the night report).
+        self.failures = 0
 
         # entity_id -> (owner, context id of the change that turned it on)
         self._owned: dict[str, tuple[str, str]] = {}
@@ -216,6 +218,7 @@ class LightController:
             )
         except HomeAssistantError as err:
             _LOGGER.warning("Could not switch %s: %s", entity_id, err)
+            self.failures += 1
             if turn_on:
                 self._owned.pop(entity_id, None)
             return False

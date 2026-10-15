@@ -8,7 +8,12 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+)
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import (
     config_validation as cv,
@@ -22,6 +27,7 @@ from homeassistant.loader import async_get_integration
 from .alarm import AlarmController
 from .const import (
     ATTR_CONFIG_ENTRY_ID,
+    ATTR_DAY_TYPE,
     ATTR_END_DATE,
     ATTR_LIGHTS_BEHAVIOR,
     ATTR_ROUTE,
@@ -36,31 +42,39 @@ from .const import (
     CONF_LIGHTS,
     CONF_PERSONS,
     CONF_REAR_LIGHTS,
+    CONF_REPORT_NOTIFY,
     CONF_UNAVAILABLE_ALERT_MINUTES,
     DEFAULT_ALARM_ACTIVATE_STATES,
     DEFAULT_ALARM_CONTROL,
     DEFAULT_UNAVAILABLE_ALERT_MINUTES,
     DOMAIN,
     ORIGIN_SERVICE,
+    SERVICE_DREAM_PREVIEW,
     SERVICE_FORGET_PERIOD,
+    SERVICE_GET_HEATMAP,
     SERVICE_RUN_SEQUENCE,
     SERVICE_START,
     SERVICE_STOP,
     STOP_BEHAVIORS,
     SUBENTRY_ROUTE,
 )
+from .dream import DreamEngine
 from .engine import SimulationEngine
 from .learning import LearningGate
 from .light_control import LightController
+from .model import DAY_TYPES
 from .models import LumaConfigEntry, LumaRuntime, LumaSettings, Route
 from .monitor import (
+    ROLE_DREAM,
     ROLE_REPLAY,
     ROLE_ROUTE,
     ROLE_SIMULATION,
     AvailabilityMonitor,
     async_delete_issues,
 )
+from .plan import PlanPlayer
 from .replay import ReplayEngine
+from .report import NightReporter
 from .sequences import SequenceEngine
 
 _LOGGER = logging.getLogger(__name__)
@@ -83,6 +97,8 @@ STOP_SCHEMA = vol.Schema(
     {**_BASE_SCHEMA, vol.Optional(ATTR_LIGHTS_BEHAVIOR): vol.In(STOP_BEHAVIORS)}
 )
 RUN_SEQUENCE_SCHEMA = vol.Schema({**_BASE_SCHEMA, vol.Optional(ATTR_ROUTE): cv.string})
+DREAM_PREVIEW_SCHEMA = vol.Schema(_BASE_SCHEMA)
+HEATMAP_SCHEMA = vol.Schema({**_BASE_SCHEMA, vol.Required(ATTR_DAY_TYPE): vol.In(DAY_TYPES)})
 FORGET_SCHEMA = vol.Schema(
     {
         **_BASE_SCHEMA,
@@ -148,6 +164,51 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.services.async_register(
         DOMAIN, SERVICE_RUN_SEQUENCE, _run_sequence, schema=RUN_SEQUENCE_SCHEMA
     )
+
+    async def _dream_preview(call: ServiceCall) -> ServiceResponse:
+        runtime = _runtimes(hass, call)[0]
+        assert runtime.dream is not None
+        plan = await runtime.dream.async_preview(runtime.engine.planning_window())
+        if plan is None:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="dream_not_ready",
+                translation_placeholders={
+                    "reason": str(runtime.dream.preview_status.get("reason")),
+                },
+            )
+        return {
+            "night": plan.night.isoformat(),
+            "score": plan.score,
+            "reason": plan.reason,
+            "summary": plan.summary(),
+            "rooms": plan.rooms,
+            "timeline": plan.compact(),
+            **{
+                key: runtime.dream.preview_status.get(key)
+                for key in ("candidates", "similarity_max", "day_type")
+            },
+        }
+
+    async def _get_heatmap(call: ServiceCall) -> ServiceResponse:
+        runtime = _runtimes(hass, call)[0]
+        assert runtime.dream is not None
+        return runtime.dream.heatmap(call.data[ATTR_DAY_TYPE])
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_DREAM_PREVIEW,
+        _dream_preview,
+        schema=DREAM_PREVIEW_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_HEATMAP,
+        _get_heatmap,
+        schema=HEATMAP_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
     return True
 
 
@@ -180,6 +241,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
     )
     learning = LearningGate(hass, entry.entry_id, config, settings, engine)
     await learning.async_load()
+    player = PlanPlayer(hass, entry.entry_id, controller, learning)
     replay = ReplayEngine(
         hass,
         entry.entry_id,
@@ -187,10 +249,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         settings,
         controller,
         learning,
+        player,
         on_lights=lambda lights: monitor.async_set_role_lights(ROLE_REPLAY, lights),
     )
     await replay.async_load()
+    dream = DreamEngine(
+        hass,
+        entry.entry_id,
+        config,
+        settings,
+        learning,
+        player,
+        on_lights=lambda lights: monitor.async_set_role_lights(ROLE_DREAM, lights),
+    )
+    await dream.async_load()
     engine.replay = replay
+    engine.dream = dream
+    engine.player = player
+    reporter = NightReporter(
+        hass, entry.entry_id, settings, controller, player, config.get(CONF_REPORT_NOTIFY)
+    )
     alarm: AlarmController | None = None
     if config.get(CONF_ALARM_CONTROL, DEFAULT_ALARM_CONTROL) and config.get(CONF_ALARM):
         alarm = AlarmController(
@@ -214,6 +292,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         monitor=monitor,
         replay=replay,
         alarm=alarm,
+        player=player,
+        dream=dream,
+        reporter=reporter,
     )
 
     # Entities restore their settings while the platforms are set up.
@@ -224,7 +305,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         _check_entities(hass, entry, config, route_lights)
         await controller.async_start([*engine.lights, *route_lights])
         await engine.async_start()
+        dream.async_start()
         await sequences.async_start()
+        reporter.async_start()
         await learning.async_start()
         await monitor.async_start()
         # Last: the master switch is restored and every engine has started.
@@ -265,6 +348,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> boo
     await runtime.controller.async_shutdown()
     await runtime.monitor.async_shutdown()
     runtime.replay.async_shutdown()
+    if runtime.dream is not None:
+        runtime.dream.async_shutdown()
+    if runtime.reporter is not None:
+        runtime.reporter.async_shutdown()
+    if runtime.player is not None:
+        runtime.player.async_shutdown()
     if runtime.alarm is not None:
         await runtime.alarm.async_shutdown()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

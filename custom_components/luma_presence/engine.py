@@ -29,12 +29,15 @@ from .const import (
     EVENT_START,
     MAX_END_JITTER_MIN,
     MAX_START_JITTER_MIN,
+    MODE_DREAM,
     MODE_REPLAY,
     MODE_SUN,
     ORIGIN_MANUAL,
     ORIGIN_RESTORE,
     ORIGIN_SCHEDULE,
     OWNER_SIMULATION,
+    SOURCE_FALLBACK,
+    SOURCE_REPLAY,
     STATUS_IDLE,
     STATUS_SIMULATING,
     STATUS_STOPPING,
@@ -49,6 +52,8 @@ from .light_control import LightController
 from .models import LumaSettings
 
 if TYPE_CHECKING:
+    from .dream import DreamEngine
+    from .plan import PlanPlayer
     from .replay import ReplayEngine
 
 _LOGGER = logging.getLogger(__name__)
@@ -80,6 +85,8 @@ class SimulationEngine:
         self.controller = controller
         # Set once the learning gate exists; plays Replay nights.
         self.replay: ReplayEngine | None = None
+        self.dream: DreamEngine | None = None
+        self.player: PlanPlayer | None = None
 
         self.enabled = False
         # Who turned the master switch on, and when (cleared when it turns off).
@@ -283,11 +290,11 @@ class SimulationEngine:
         for day in [d for d in self._jitter if d < limit]:
             del self._jitter[day]
 
-    def _window(self, day: date) -> tuple[datetime, datetime] | None:
+    def _window(self, day: date, mode: str | None = None) -> tuple[datetime, datetime] | None:
         """Return the (start, end) UTC window that starts on a local date."""
         settings = self.settings
         tz = dt_util.get_default_time_zone()
-        if settings.mode in (MODE_SUN, MODE_REPLAY):
+        if (mode or settings.mode) in (MODE_SUN, MODE_REPLAY, MODE_DREAM):
             start = get_astral_event_date(self.hass, SUN_EVENT_SUNSET, day)
             if start is None:
                 return None
@@ -314,18 +321,22 @@ class SimulationEngine:
             return None
         return start, end
 
-    def _current_window(self, now: datetime) -> tuple[datetime, datetime] | None:
+    def _current_window(
+        self, now: datetime, mode: str | None = None
+    ) -> tuple[datetime, datetime] | None:
         today = dt_util.as_local(now).date()
         for offset in (-1, 0):
-            window = self._window(today + timedelta(days=offset))
+            window = self._window(today + timedelta(days=offset), mode)
             if window is not None and window[0] <= now < window[1]:
                 return window
         return None
 
-    def _next_window(self, now: datetime) -> tuple[datetime, datetime] | None:
+    def _next_window(
+        self, now: datetime, mode: str | None = None
+    ) -> tuple[datetime, datetime] | None:
         today = dt_util.as_local(now).date()
         for offset in (0, 1, 2):
-            window = self._window(today + timedelta(days=offset))
+            window = self._window(today + timedelta(days=offset), mode)
             if window is not None and window[0] > now:
                 return window
         return None
@@ -352,6 +363,9 @@ class SimulationEngine:
         )
 
     async def _async_run(self, window: tuple[datetime, datetime]) -> None:
+        if self.settings.mode == MODE_DREAM and self.dream is not None:
+            await self._async_run_dream(window)
+            return
         if (
             self.settings.mode == MODE_REPLAY
             and self.replay is not None
@@ -362,6 +376,28 @@ class SimulationEngine:
         # Other modes, or Replay without a usable source night: random loop
         # (with the Replay window, that is exactly Sun mode).
         await self._async_simulation_loop()
+
+    async def _async_run_dream(self, window: tuple[datetime, datetime]) -> None:
+        """Dream, else Replay, else Sun mode; each fallback says why."""
+        assert self.dream is not None and self.player is not None
+        if (plan := await self.dream.async_plan(window)) is not None:
+            await self.player.async_play(plan)
+            return
+        if self.replay is not None:
+            if (replay_plan := await self.replay.async_plan(window)) is not None:
+                self.dream.note_fallback(SOURCE_REPLAY, None)
+                await self.replay.async_play(replay_plan)
+                return
+            replay_reason = (self.replay.status or {}).get("reason")
+        else:
+            replay_reason = None
+        self.dream.note_fallback(SOURCE_FALLBACK, replay_reason)
+        await self._async_simulation_loop()
+
+    def planning_window(self) -> tuple[datetime, datetime] | None:
+        """Tonight's Sun-style window (current or next), for Dream previews."""
+        now = dt_util.utcnow()
+        return self._current_window(now, MODE_SUN) or self._next_window(now, MODE_SUN)
 
     async def _async_simulation_loop(self) -> None:
         while True:

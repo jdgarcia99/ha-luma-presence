@@ -88,7 +88,26 @@ STEP_RETURN: Final = "return"
 MODE_SUN: Final = "sun"
 MODE_TIME: Final = "time"
 MODE_REPLAY: Final = "replay"
-MODES: Final = [MODE_SUN, MODE_TIME, MODE_REPLAY]
+MODE_DREAM: Final = "dream"
+MODES: Final = [MODE_SUN, MODE_TIME, MODE_REPLAY, MODE_DREAM]
+
+# Dream mode
+CONF_DREAM_CANDIDATES: Final = "dream_candidates"
+CONF_DREAM_MAX_SIMILARITY: Final = "dream_max_similarity"
+CONF_REPORT_NOTIFY: Final = "report_notify"
+DEFAULT_DREAM_CANDIDATES: Final = 20
+DEFAULT_DREAM_MAX_SIMILARITY: Final = 0.7
+# Why tonight's Dream plan is what it is, or why Dream fell back
+DREAM_BEST: Final = "best_candidate"
+DREAM_LOW_SCORE: Final = "low_score"
+DREAM_NOT_ENOUGH_NIGHTS: Final = "not_enough_nights"
+DREAM_NO_WINDOW: Final = "no_window"
+DREAM_REASONS: Final = [DREAM_BEST, DREAM_LOW_SCORE, DREAM_NOT_ENOUGH_NIGHTS, DREAM_NO_WINDOW]
+# What ran tonight in Dream mode
+SOURCE_DREAM: Final = "dream"
+SOURCE_REPLAY: Final = "replay"
+SOURCE_FALLBACK: Final = "fallback"
+SOURCES: Final = [SOURCE_DREAM, SOURCE_REPLAY, SOURCE_FALLBACK]
 
 # Why Replay picked its source night, or why it fell back to Sun mode
 REPLAY_SAME_WEEKDAY: Final = "same_weekday"
@@ -130,6 +149,7 @@ EVENT_END: Final = "end"
 EVENT_ACTION: Final = f"{DOMAIN}_action"
 EVENT_LIGHT_UNAVAILABLE: Final = f"{DOMAIN}_light_unavailable"
 EVENT_LIGHT_AVAILABLE: Final = f"{DOMAIN}_light_available"
+EVENT_NIGHT_REPORT: Final = f"{DOMAIN}_night_report"
 
 MAX_START_JITTER_MIN: Final = 30
 MAX_END_JITTER_MIN: Final = 30
@@ -162,6 +182,9 @@ SERVICE_START: Final = "start"
 SERVICE_STOP: Final = "stop"
 SERVICE_FORGET_PERIOD: Final = "forget_period"
 SERVICE_RUN_SEQUENCE: Final = "run_sequence"
+SERVICE_DREAM_PREVIEW: Final = "dream_preview"
+SERVICE_GET_HEATMAP: Final = "get_heatmap"
+ATTR_DAY_TYPE: Final = "day_type"
 ATTR_CONFIG_ENTRY_ID: Final = "config_entry_id"
 ATTR_ROUTE: Final = "route"
 ATTR_LIGHTS_BEHAVIOR: Final = "lights_behavior"

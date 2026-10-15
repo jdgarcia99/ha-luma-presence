@@ -10,7 +10,7 @@
 
 Presence simulation for Home Assistant that makes an empty house look lived in. LumaPresence switches lights on and off in a random but believable way, works alongside your alarm, and learns how your home is really used.
 
-> **Status: phase 2 complete (v0.5.0).** Sun, Time and Replay modes, learning data collection, night sequences and built-in alarm control. The Dream mode comes in phase 3.
+> **Status: phase 3a (v0.6.0).** Sun, Time, Replay and Dream modes, learning data collection, night sequences and built-in alarm control. Context (darkness, mornings, calendar, weather), covers, ambience and optional AI come next.
 
 ## How it works
 
@@ -146,7 +146,7 @@ If no night is eligible, Replay runs that night exactly like **Sun mode** and sa
 
 ### Lights
 
-With *Replay by room* (on by default), each event is played in its room: if the room has simulation lights, it goes to one of them (front first, then rear, then interior, in configuration order); if the room has none, or its room is unknown, it is played on the original light. When several lights of a room map to the same simulation light, that light stays on while any of them was on. With *Replay by room* off, every event is played on exactly the same light.
+With *Map by room* (on by default; it was called *Replay by room* before v0.6.0), each event is played in its room: if the room has simulation lights, it goes to one of them (front first, then rear, then interior, in configuration order); if the room has none, or its room is unknown, it is played on the original light. When several lights of a room map to the same simulation light, that light stays on while any of them was on. With *Map by room* off, every event is played on exactly the same light.
 
 Events for lights that are unavailable, disabled or no longer learned are skipped.
 
@@ -160,6 +160,50 @@ Events for lights that are unavailable, disabled or no longer learned are skippe
 - After a restart during the night, Replay rebuilds the same timeline and continues.
 
 `sensor.luma_presence_replay_source` shows the source night (its start date) and, as attributes, the `reason` it was chosen (`same_weekday`, `same_day_type`, `most_recent`) or the reason for falling back (`fallback_no_data`, `fallback_not_enough_events`, `fallback_not_enough_exposure`), the number of `events` inside the window, the number of `eligible_nights` and `by_room`.
+
+## Dream mode
+
+Dream generates a **new** night every night, built from how your house is really lived in, so that someone watching for several nights sees an occupied home and not a loop.
+
+### How it learns
+
+From the [learned data](#learning) (only nights with people at home, only human actions), LumaPresence builds a **room model**, rebuilt every day at 12:00:
+
+- A **room** is occupied while any of its learned lights is on; lights without an area count as a room of their own.
+- Time is measured from each night's **sunset**, in 15-minute slots from an hour before sunset until sunrise, so the model follows the seasons.
+- Nights are split into **weekday** nights (starting Sunday–Thursday) and **weekend** nights (Friday and Saturday).
+- For each room and day type it estimates how often the room starts being used in each slot, how long visits last (evening, late night, small hours), which room tends to follow it within 10 minutes, and how many rooms are usually busy at once (its 95th percentile caps a dreamed night).
+- Recent nights weigh more (half-life *Dream memory half-life*, 21 days by default), and **atypical** nights (far more or less activity than usual, robust z-score above 3) weigh 30 %.
+
+### Each night
+
+1. *Candidates per night* (20 by default) nights are simulated minute by minute over tonight's window (the Sun mode window).
+2. Each one gets a **realism score** (0–100) against the model:
+   `100 × (0.4 × occupancy + 0.2 × durations + 0.2 × concurrency + 0.2 × visits)`, where
+   *occupancy* is 1 minus the normalised L1 distance between the expected and the dreamed occupancy of every room and slot,
+   *durations* is 1 minus the Kolmogorov–Smirnov distance between dreamed and learned visit durations,
+   *concurrency* is 1 minus the normalised distance between the expected and the dreamed number of busy rooms per slot, and
+   *visits* is the share of rooms whose number of visits is within the expected range (expected starts ± 2 standard deviations).
+3. Candidates too similar to one of the last 7 nights (*Maximum similarity with recent nights*, 0.7 by default: share of the same rooms in the same 15-minute slots) are discarded.
+4. The best remaining candidate with at least *Dream minimum realism* (60 by default) is chosen; if none qualifies, the best one runs anyway with reason `low_score`.
+5. Rooms are mapped to lights as in Replay (*Map by room*), the usual jitter is applied, and the plan is played like a Replay night: same ownership rule (including the [real-absence rule](#playback)), locks and restart behaviour. The plan is saved, so a restart continues the same night.
+
+### Minimum data and fallbacks
+
+Dream needs *Dream minimum nights* valid learned nights (14 by default, 7–60) of tonight's day type. Until then, and whenever it cannot plan a night, it falls back to **Replay**, and then to **Sun mode**; the reason is always shown.
+
+### Transparency
+
+- `sensor.luma_presence_realism`: tonight's score, with `source` (`dream`, `replay` or `fallback`), `reason`, `candidates`, `similarity_max` and `day_type`.
+- `sensor.luma_presence_tonight_plan`: number of changes planned tonight, with the `timeline`, the `rooms` and a `summary` such as "Living room 20:10–23:40 · Kitchen 21:05–21:30".
+- `sensor.luma_presence_model`: valid nights in the model, with the nights, rooms and atypical nights of each day type.
+- `button.luma_presence_dream_night` and `luma_presence.dream_preview`: generate tonight's plan **without** switching anything; the plan sensor shows it with `preview: true`.
+- `luma_presence.get_heatmap`: two room × hour matrices (real average occupancy and the average of 7 dreamed nights) to compare them in a dashboard.
+- **Morning report**: at sunrise after a night in which the simulation or a night sequence ran, the `luma_presence_night_report` event carries the mode, source, score, rooms, lights switched and failures. Set *Send the morning report to* (**Monitoring** section) to also get a short translated notification.
+
+### Privacy
+
+Everything runs inside Home Assistant: the model is built locally from LumaPresence's own learned data, and only the model (not a copy of your events) is kept in memory. Nothing leaves your installation.
 
 ## Night sequences
 
@@ -199,10 +243,11 @@ To try a route at home, press **Test sequence** (`button.luma_presence_test_sequ
 ## Entities
 
 - `switch.luma_presence_simulation`: master switch. Its state is restored after a restart, and the simulation resumes if it is inside its window.
-- `select.luma_presence_mode`: **Sun** (starts at sunset), **Time** (starts at a fixed time) or [**Replay**](#replay-mode) (reproduces a real night).
+- `select.luma_presence_mode`: **Sun** (starts at sunset), **Time** (starts at a fixed time), [**Replay**](#replay-mode) (reproduces a real night) or [**Dream**](#dream-mode) (a new night generated from what was learned).
 - `select.luma_presence_stop_behavior`: what to do with the lights the simulation turned on when it is stopped manually: keep them on, turn them off at once, turn them off gradually, or keep them on only at night.
 - Settings: minimum and maximum lights on, minimum front and rear lights on, dwell times, switch-off interval, start, end and late end times, late arrival, and random start and end delays.
-- Replay settings: `switch.luma_presence_replay_by_room`, `number.luma_presence_replay_jitter` and `number.luma_presence_replay_min_events`.
+- Replay settings: `switch.luma_presence_replay_by_room` (*Map by room*, also used by Dream), `number.luma_presence_replay_jitter` (also used by Dream) and `number.luma_presence_replay_min_events`.
+- Dream settings: `number.luma_presence_dream_min_days`, `number.luma_presence_dream_min_score` and `number.luma_presence_dream_half_life`; Dream sensors and button are described in [Dream mode](#dream-mode).
 - Sensors: status, next event, last action, simulating, learning, valid learning days and Replay source. The last action includes `mode: replay`, and the original light when it differs, for Replay actions.
 - Diagnostic sensors, to see from the device page which lights take part:
   - `sensor.luma_presence_simulation_lights`: number of simulation lights, with the `front`, `rear` and `interior` lists as attributes.
@@ -262,6 +307,8 @@ automation:
 - `luma_presence.start` / `luma_presence.stop`: turn the simulation on or off. `stop` accepts an optional `lights_behavior` that overrides the configured stop behaviour.
 - `luma_presence.forget_period`: deletes everything learned between two dates.
 - `luma_presence.run_sequence`: runs a night route now. Accepts an optional `route` name; a random route otherwise.
+- `luma_presence.dream_preview` (returns data): generates tonight's Dream plan without executing it.
+- `luma_presence.get_heatmap` (returns data): real vs dreamed occupancy per room and hour for a day type (`weekday` or `weekend`).
 
 ## Translations
 
@@ -270,7 +317,7 @@ The user interface is available in English and Spanish. Contributions for other 
 ## Roadmap
 
 - **Phase 2** (done): night sequences (v0.3.0), Replay mode (v0.4.0) and built-in alarm control (v0.5.0).
-- **Phase 3**: Dream mode (new, believable patterns generated from what has been learned, with optional AI), repairs and diagnostics.
+- **Phase 3**: Dream mode core (v0.6.0); then context (darkness-based start, morning window, calendar and weather, actuator verification), covers, ambience and deterrence, and optional generative AI.
 
 ## Development
 

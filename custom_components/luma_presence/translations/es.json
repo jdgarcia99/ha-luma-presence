@@ -88,6 +88,7 @@
           "learning_preview": "Vista previa del aprendizaje",
           "presence": "Personas y alarma",
           "sequences": "Secuencias nocturnas",
+          "dream": "Dream",
           "monitoring": "Supervisión",
           "save": "Guardar"
         }
@@ -177,10 +178,24 @@
         "title": "Supervisión",
         "description": "Crea un aviso en Reparaciones, y lanza el evento `luma_presence_light_unavailable`, cuando una luz de simulación o de un recorrido sigue sin estar disponible.",
         "data": {
-          "unavailable_alert_minutes": "Avisar si una luz no está disponible durante (minutos)"
+          "unavailable_alert_minutes": "Avisar si una luz no está disponible durante (minutos)",
+          "report_notify": "Enviar el informe de la mañana a"
         },
         "data_description": {
-          "unavailable_alert_minutes": "0 desactiva los avisos."
+          "unavailable_alert_minutes": "0 desactiva los avisos.",
+          "report_notify": "Una entidad de notificación (notify.mi_movil) o un servicio (notify.mobile_app_mi_movil). Déjalo vacío para lanzar solo el evento luma_presence_night_report."
+        }
+      },
+      "dream": {
+        "title": "Dream",
+        "description": "Dream genera noches nuevas a partir de lo que LumaPresence ha aprendido de tu casa. Cada noche crea varias candidatas y se queda con la más realista que no se parezca demasiado a las últimas noches.",
+        "data": {
+          "dream_candidates": "Candidatas por noche",
+          "dream_max_similarity": "Parecido máximo con las noches recientes"
+        },
+        "data_description": {
+          "dream_candidates": "Noches que se generan antes de elegir la más realista.",
+          "dream_max_similarity": "Se descarta una candidata que se parezca más que esto a alguna de las 7 últimas noches (proporción de las mismas estancias a las mismas horas)."
         }
       }
     },
@@ -240,6 +255,9 @@
     "button": {
       "test_sequence": {
         "name": "Probar secuencia"
+      },
+      "dream_night": {
+        "name": "Soñar una noche"
       }
     },
     "switch": {
@@ -279,7 +297,7 @@
         "name": "Secuencias nocturnas"
       },
       "replay_by_room": {
-        "name": "Replay por estancias"
+        "name": "Mapear por estancias"
       }
     },
     "select": {
@@ -288,7 +306,8 @@
         "state": {
           "sun": "Sol",
           "time": "Horario",
-          "replay": "Replay"
+          "replay": "Replay",
+          "dream": "Dream"
         }
       },
       "stop_behavior": {
@@ -334,6 +353,15 @@
       },
       "replay_min_events": {
         "name": "Eventos mínimos para Replay"
+      },
+      "dream_min_days": {
+        "name": "Noches mínimas para Dream"
+      },
+      "dream_min_score": {
+        "name": "Realismo mínimo de Dream"
+      },
+      "dream_half_life": {
+        "name": "Vida media de la memoria de Dream"
       }
     },
     "time": {
@@ -427,6 +455,41 @@
             "name": "Por estancias"
           }
         }
+      },
+      "realism": {
+        "name": "Realismo",
+        "state_attributes": {
+          "source": {
+            "name": "Origen",
+            "state": {
+              "dream": "Dream",
+              "replay": "Replay",
+              "fallback": "Modo Sol"
+            }
+          },
+          "reason": {
+            "name": "Motivo",
+            "state": {
+              "best_candidate": "Mejor noche realista y nueva",
+              "low_score": "Mejor noche, por debajo del realismo mínimo",
+              "not_enough_nights": "No hay suficientes noches aprendidas",
+              "no_window": "Sin ventana esta noche"
+            }
+          },
+          "day_type": {
+            "name": "Tipo de día",
+            "state": {
+              "weekday": "Noche entre semana",
+              "weekend": "Noche de fin de semana"
+            }
+          }
+        }
+      },
+      "tonight_plan": {
+        "name": "Plan de esta noche"
+      },
+      "model": {
+        "name": "Modelo de Dream"
       }
     }
   },
@@ -443,7 +506,8 @@
       "options": {
         "simulation": "luz de simulación",
         "route": "recorrido",
-        "replay": "Replay"
+        "replay": "Replay",
+        "dream": "Dream"
       }
     },
     "alarm_state": {
@@ -453,6 +517,12 @@
         "armed_home": "Armada en casa",
         "armed_night": "Armada noche",
         "armed_custom_bypass": "Armada con exclusiones personalizadas"
+      }
+    },
+    "day_type": {
+      "options": {
+        "weekday": "Noche entre semana",
+        "weekend": "Noche de fin de semana"
       }
     }
   },
@@ -512,6 +582,30 @@
           "description": "Nombre del recorrido que se ejecuta. Uno al azar si se deja vacío."
         }
       }
+    },
+    "dream_preview": {
+      "name": "Vista previa de Dream",
+      "description": "Genera el plan de Dream de esta noche sin ejecutarlo y lo devuelve.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Instancia",
+          "description": "Instancia de LumaPresence. La primera si se deja vacío."
+        }
+      }
+    },
+    "get_heatmap": {
+      "name": "Obtener mapa de calor",
+      "description": "Devuelve, para un tipo de día, la ocupación media real por estancia y hora y la media de 7 noches soñadas, para paneles.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Instancia",
+          "description": "Instancia de LumaPresence. La primera si se deja vacío."
+        },
+        "day_type": {
+          "name": "Tipo de día",
+          "description": "Las noches entre semana empiezan de domingo a jueves; las de fin de semana, viernes y sábado."
+        }
+      }
     }
   },
   "issues": {
@@ -536,6 +630,12 @@
     },
     "no_routes": {
       "message": "No se puede ejecutar ningún recorrido: añade uno o comprueba que las luces de origen y destino de los recorridos están disponibles."
+    },
+    "dream_not_ready": {
+      "message": "Dream todavía no puede planificar esta noche ({reason}). Necesita suficientes noches aprendidas del tipo de día de esta noche."
+    },
+    "night_report": {
+      "message": "Anoche ({mode}): {lights} luces conmutadas {switches} veces. Estancias: {rooms}. Realismo: {score}. Fallos: {failures}."
     }
   }
 }

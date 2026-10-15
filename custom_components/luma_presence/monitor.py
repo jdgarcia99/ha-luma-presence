@@ -36,10 +36,12 @@ _UNAVAILABLE = (STATE_UNAVAILABLE, STATE_UNKNOWN)
 ROLE_SIMULATION = "simulation"
 ROLE_ROUTE = "route"
 ROLE_REPLAY = "replay"
+ROLE_DREAM = "dream"
 _DEFAULT_LABELS = {
     ROLE_SIMULATION: "simulation light",
     ROLE_ROUTE: "route",
     ROLE_REPLAY: "replay",
+    ROLE_DREAM: "dream",
 }
 
 

@@ -10,7 +10,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.const import EntityCategory
+from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -18,6 +18,7 @@ from .const import (
     CONF_FRONT_LIGHTS,
     CONF_LIGHTS,
     CONF_REAR_LIGHTS,
+    MODE_DREAM,
     MODE_REPLAY,
     STATUSES,
 )
@@ -37,6 +38,9 @@ async def async_setup_entry(
             NextEventSensor(entry),
             NextSequenceSensor(entry),
             ReplaySourceSensor(entry),
+            RealismSensor(entry),
+            TonightPlanSensor(entry),
+            DreamModelSensor(entry),
             LastActionSensor(entry),
             LearningDaysSensor(entry),
             SimulationLightsSensor(entry),
@@ -132,6 +136,102 @@ class ReplaySourceSensor(LumaEntity, SensorEntity):
             "eligible_nights": status.get("eligible_nights", 0),
             "by_room": self._runtime.settings.replay_by_room,
         }
+
+
+class RealismSensor(LumaEntity, SensorEntity):
+    """Realism score of tonight's Dream plan."""
+
+    _attr_icon = "mdi:creation"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, entry: LumaConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(entry, "realism", "sensor")
+
+    def _status(self) -> dict[str, Any]:
+        dream = self._runtime.dream
+        if self._runtime.settings.mode != MODE_DREAM or dream is None:
+            return {}
+        return dream.status
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the score (0-100)."""
+        return self._status().get("score")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return what ran tonight and why."""
+        status = self._status()
+        return {
+            "source": status.get("source"),
+            "reason": status.get("reason"),
+            "replay_reason": status.get("replay_reason"),
+            "candidates": status.get("candidates", 0),
+            "similarity_max": status.get("similarity_max"),
+            "day_type": status.get("day_type"),
+        }
+
+
+class TonightPlanSensor(LumaEntity, SensorEntity):
+    """Tonight's plan (Replay or Dream), or a Dream preview."""
+
+    _attr_icon = "mdi:timeline-clock-outline"
+    _unrecorded_attributes = frozenset({"timeline", "rooms", "summary"})
+
+    def __init__(self, entry: LumaConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(entry, "tonight_plan", "sensor")
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the number of transitions inside the window."""
+        player = self._runtime.player
+        if player is None or player.shown is None:
+            return None
+        return len(player.shown.in_window())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the compact timeline, rooms and summary."""
+        player = self._runtime.player
+        plan = player.shown if player else None
+        if plan is None:
+            return {"preview": False}
+        return {
+            "night": plan.night.isoformat(),
+            "source": plan.source,
+            "preview": plan.preview,
+            "summary": plan.summary(),
+            "rooms": plan.rooms,
+            "timeline": plan.compact(),
+        }
+
+
+class DreamModelSensor(LumaEntity, SensorEntity):
+    """Valid learned nights in the Dream room model."""
+
+    _attr_icon = "mdi:home-analytics"
+    _unrecorded_attributes = frozenset({"weekday", "weekend"})
+
+    def __init__(self, entry: LumaConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(entry, "model", "sensor")
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the valid nights used by the model."""
+        dream = self._runtime.dream
+        if dream is None or dream.model is None:
+            return None
+        return sum(len(m.nights) for m in dream.model.day_types.values())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the model summary per day type."""
+        dream = self._runtime.dream
+        return dream.summary() if dream else {}
 
 
 class LastActionSensor(LumaEntity, SensorEntity):

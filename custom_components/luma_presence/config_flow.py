@@ -53,6 +53,8 @@ from .const import (
     CONF_ALARM_CONTROL,
     CONF_AUTO_EXCLUDE_INDICATORS,
     CONF_DESTINATION,
+    CONF_DREAM_CANDIDATES,
+    CONF_DREAM_MAX_SIMILARITY,
     CONF_DWELL_MAX,
     CONF_DWELL_MIN,
     CONF_FRONT_LIGHTS,
@@ -68,12 +70,15 @@ from .const import (
     CONF_PATH,
     CONF_PERSONS,
     CONF_REAR_LIGHTS,
+    CONF_REPORT_NOTIFY,
     CONF_STEP_DELAY_MAX,
     CONF_STEP_DELAY_MIN,
     CONF_UNAVAILABLE_ALERT_MINUTES,
     DEFAULT_ALARM_ACTIVATE_STATES,
     DEFAULT_ALARM_CONTROL,
     DEFAULT_AUTO_EXCLUDE_INDICATORS,
+    DEFAULT_DREAM_CANDIDATES,
+    DEFAULT_DREAM_MAX_SIMILARITY,
     DEFAULT_DWELL_MAX,
     DEFAULT_DWELL_MIN,
     DEFAULT_HUMAN_ONLY,
@@ -96,6 +101,7 @@ STEP_LEARNING = "learning"
 STEP_LEARNING_PREVIEW = "learning_preview"
 STEP_PRESENCE = "presence"
 STEP_SEQUENCES = "sequences"
+STEP_DREAM = "dream"
 STEP_MONITORING = "monitoring"
 STEP_SAVE = "save"
 MENU_OPTIONS = [
@@ -105,6 +111,7 @@ MENU_OPTIONS = [
     STEP_LEARNING_PREVIEW,
     STEP_PRESENCE,
     STEP_SEQUENCES,
+    STEP_DREAM,
     STEP_MONITORING,
     STEP_SAVE,
 ]
@@ -130,6 +137,7 @@ _EMPTY_VALUES: dict[str, dict[str, Any]] = {
         CONF_LEARN_EXCLUDE: [],
     },
     STEP_PRESENCE: {CONF_PERSONS: [], CONF_ALARM: None, CONF_ALARM_ACTIVATE_STATES: []},
+    STEP_MONITORING: {CONF_REPORT_NOTIFY: ""},
 }
 
 
@@ -152,6 +160,8 @@ def _default_options(hass: HomeAssistant) -> dict[str, Any]:
         CONF_ALARM_CONTROL: DEFAULT_ALARM_CONTROL,
         CONF_ALARM_ACTIVATE_STATES: list(DEFAULT_ALARM_ACTIVATE_STATES),
         CONF_UNAVAILABLE_ALERT_MINUTES: DEFAULT_UNAVAILABLE_ALERT_MINUTES,
+        CONF_DREAM_CANDIDATES: DEFAULT_DREAM_CANDIDATES,
+        CONF_DREAM_MAX_SIMILARITY: DEFAULT_DREAM_MAX_SIMILARITY,
     }
 
 
@@ -289,6 +299,28 @@ def _monitoring_schema(options: Mapping[str, Any]) -> vol.Schema:
                     CONF_UNAVAILABLE_ALERT_MINUTES, DEFAULT_UNAVAILABLE_ALERT_MINUTES
                 ),
             ): _number(1440, "min"),
+            vol.Optional(
+                CONF_REPORT_NOTIFY, description=_suggested(options, CONF_REPORT_NOTIFY)
+            ): TextSelector(),
+        }
+    )
+
+
+def _dream_schema(options: Mapping[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_DREAM_CANDIDATES,
+                default=options.get(CONF_DREAM_CANDIDATES, DEFAULT_DREAM_CANDIDATES),
+            ): NumberSelector(
+                NumberSelectorConfig(min=1, max=100, step=1, mode=NumberSelectorMode.BOX)
+            ),
+            vol.Required(
+                CONF_DREAM_MAX_SIMILARITY,
+                default=options.get(CONF_DREAM_MAX_SIMILARITY, DEFAULT_DREAM_MAX_SIMILARITY),
+            ): NumberSelector(
+                NumberSelectorConfig(min=0, max=1, step=0.05, mode=NumberSelectorMode.SLIDER)
+            ),
         }
     )
 
@@ -535,6 +567,17 @@ class LumaPresenceOptionsFlow(_LumaSteps, OptionsFlow):
             return await self.async_step_init()
         return self.async_show_form(
             step_id=STEP_SEQUENCES, data_schema=_sequences_schema(self._options)
+        )
+
+    async def async_step_dream(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Dream candidates and novelty."""
+        if user_input is not None:
+            self._update(STEP_DREAM, user_input)
+            return await self.async_step_init()
+        return self.async_show_form(
+            step_id=STEP_DREAM, data_schema=_dream_schema(self._options)
         )
 
     async def async_step_monitoring(

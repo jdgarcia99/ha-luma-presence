@@ -22,11 +22,14 @@ from .const import (
 
 if TYPE_CHECKING:
     from .alarm import AlarmController
+    from .dream import DreamEngine
     from .engine import SimulationEngine
     from .learning import LearningGate
     from .light_control import LightController
     from .monitor import AvailabilityMonitor
+    from .plan import PlanPlayer
     from .replay import ReplayEngine
+    from .report import NightReporter
     from .sequences import SequenceEngine
 
 
@@ -54,9 +57,22 @@ class LumaSettings:
     sequence_start_time: time = time(0, 45)
     sequence_min_interval: int = 45
     sequence_max_interval: int = 90
-    replay_by_room: bool = True
+    # Replay and Dream map rooms to simulation lights (was replay_by_room).
+    map_by_room: bool = True
     replay_jitter: int = 10
     replay_min_events: int = 4
+    dream_min_days: int = 14
+    dream_min_score: int = 60
+    dream_half_life: int = 21
+
+    @property
+    def replay_by_room(self) -> bool:
+        """Name used before v0.6.0."""
+        return self.map_by_room
+
+    @replay_by_room.setter
+    def replay_by_room(self, value: bool) -> None:
+        self.map_by_room = value
 
 
 SCHEDULE_SETTINGS = frozenset(
@@ -125,6 +141,9 @@ class LumaRuntime:
     monitor: AvailabilityMonitor
     replay: ReplayEngine
     alarm: AlarmController | None = None
+    player: PlanPlayer | None = None
+    dream: DreamEngine | None = None
+    reporter: NightReporter | None = None
 
     async def async_setting_changed(self, key: str) -> None:
         """React to a setting changed from one of the config entities."""
@@ -134,6 +153,8 @@ class LumaRuntime:
             await self.engine.async_settings_changed()
         if key in SEQUENCE_SETTINGS:
             await self.sequences.async_settings_changed(key)
+        if key == "dream_half_life" and self.dream is not None:
+            self.dream.rebuild()
         async_dispatcher_send(self.hass, signal_update(self.entry_id))
 
 

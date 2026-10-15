@@ -88,6 +88,7 @@
           "learning_preview": "Learning preview",
           "presence": "People and alarm",
           "sequences": "Night sequences",
+          "dream": "Dream",
           "monitoring": "Monitoring",
           "save": "Save"
         }
@@ -177,10 +178,24 @@
         "title": "Monitoring",
         "description": "Raise a Repairs issue, and fire the `luma_presence_light_unavailable` event, when a simulation or route light stays unavailable.",
         "data": {
-          "unavailable_alert_minutes": "Alert if a light is unavailable for (minutes)"
+          "unavailable_alert_minutes": "Alert if a light is unavailable for (minutes)",
+          "report_notify": "Send the morning report to"
         },
         "data_description": {
-          "unavailable_alert_minutes": "0 turns the alerts off."
+          "unavailable_alert_minutes": "0 turns the alerts off.",
+          "report_notify": "A notify entity (notify.my_phone) or service (notify.mobile_app_my_phone). Leave it empty to only fire the luma_presence_night_report event."
+        }
+      },
+      "dream": {
+        "title": "Dream",
+        "description": "Dream generates new nights from what LumaPresence has learned about your house. Each night it creates several candidates and keeps the most realistic one that is not too similar to the last nights.",
+        "data": {
+          "dream_candidates": "Candidates per night",
+          "dream_max_similarity": "Maximum similarity with recent nights"
+        },
+        "data_description": {
+          "dream_candidates": "Nights generated before choosing the most realistic one.",
+          "dream_max_similarity": "A candidate more similar than this to one of the last 7 nights (share of the same rooms at the same times) is discarded."
         }
       }
     },
@@ -240,6 +255,9 @@
     "button": {
       "test_sequence": {
         "name": "Test sequence"
+      },
+      "dream_night": {
+        "name": "Dream a night"
       }
     },
     "switch": {
@@ -279,7 +297,7 @@
         "name": "Night sequences"
       },
       "replay_by_room": {
-        "name": "Replay by room"
+        "name": "Map by room"
       }
     },
     "select": {
@@ -288,7 +306,8 @@
         "state": {
           "sun": "Sun",
           "time": "Time",
-          "replay": "Replay"
+          "replay": "Replay",
+          "dream": "Dream"
         }
       },
       "stop_behavior": {
@@ -334,6 +353,15 @@
       },
       "replay_min_events": {
         "name": "Minimum events for Replay"
+      },
+      "dream_min_days": {
+        "name": "Dream minimum nights"
+      },
+      "dream_min_score": {
+        "name": "Dream minimum realism"
+      },
+      "dream_half_life": {
+        "name": "Dream memory half-life"
       }
     },
     "time": {
@@ -427,6 +455,41 @@
             "name": "By room"
           }
         }
+      },
+      "realism": {
+        "name": "Realism",
+        "state_attributes": {
+          "source": {
+            "name": "Source",
+            "state": {
+              "dream": "Dream",
+              "replay": "Replay",
+              "fallback": "Sun mode"
+            }
+          },
+          "reason": {
+            "name": "Reason",
+            "state": {
+              "best_candidate": "Best realistic and new night",
+              "low_score": "Best night, below the minimum realism",
+              "not_enough_nights": "Not enough learned nights",
+              "no_window": "No window tonight"
+            }
+          },
+          "day_type": {
+            "name": "Day type",
+            "state": {
+              "weekday": "Weekday night",
+              "weekend": "Weekend night"
+            }
+          }
+        }
+      },
+      "tonight_plan": {
+        "name": "Tonight's plan"
+      },
+      "model": {
+        "name": "Dream model"
       }
     }
   },
@@ -443,7 +506,8 @@
       "options": {
         "simulation": "simulation light",
         "route": "route",
-        "replay": "replay"
+        "replay": "replay",
+        "dream": "dream"
       }
     },
     "alarm_state": {
@@ -453,6 +517,12 @@
         "armed_home": "Armed home",
         "armed_night": "Armed night",
         "armed_custom_bypass": "Armed custom bypass"
+      }
+    },
+    "day_type": {
+      "options": {
+        "weekday": "Weekday night",
+        "weekend": "Weekend night"
       }
     }
   },
@@ -512,6 +582,30 @@
           "description": "Name of the route to run. A random route if empty."
         }
       }
+    },
+    "dream_preview": {
+      "name": "Dream preview",
+      "description": "Generates tonight's Dream plan without executing it and returns it.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Instance",
+          "description": "LumaPresence instance. The first one if empty."
+        }
+      }
+    },
+    "get_heatmap": {
+      "name": "Get heatmap",
+      "description": "Returns, for a day type, the real average occupancy per room and hour and the average of 7 dreamed nights, for dashboards.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Instance",
+          "description": "LumaPresence instance. The first one if empty."
+        },
+        "day_type": {
+          "name": "Day type",
+          "description": "Weekday nights start Sunday to Thursday; weekend nights start Friday and Saturday."
+        }
+      }
     }
   },
   "issues": {
@@ -536,6 +630,12 @@
     },
     "no_routes": {
       "message": "No route can run: add a route, or check that the origin and destination lights of the routes are available."
+    },
+    "dream_not_ready": {
+      "message": "Dream cannot plan tonight yet ({reason}). It needs enough learned nights of tonight's day type."
+    },
+    "night_report": {
+      "message": "Last night ({mode}): {lights} lights switched {switches} times. Rooms: {rooms}. Realism: {score}. Failures: {failures}."
     }
   }
 }

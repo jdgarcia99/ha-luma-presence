@@ -12,16 +12,15 @@ night plays at about 21:14 tonight.
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, replace
-from datetime import date, datetime, time, timedelta
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
 import logging
 import random
 from typing import Any
 
 from homeassistant.const import STATE_OFF, STATE_ON
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
@@ -33,12 +32,7 @@ from .const import (
     CONF_REAR_LIGHTS,
     DOMAIN,
     MODE_REPLAY,
-    OWNER_SIMULATION,
-    REASON_ALARM,
-    REASON_ALARM_VACATION,
-    REASON_AWAY,
     REPLAY_MIN_COVERAGE,
-    REPLAY_MIN_GAP_S,
     REPLAY_MOST_RECENT,
     REPLAY_NO_DATA,
     REPLAY_NOT_ENOUGH_EVENTS,
@@ -53,39 +47,26 @@ from .const import (
 from .learning import LearningGate, parse_event
 from .light_control import LightController
 from .models import LumaSettings
+from .plan import (
+    NOON_S,
+    NightPlan,
+    PlanPlayer,
+    Timeline,
+    Transition,
+    apply_jitter,
+    night_of,
+    to_night_seconds,
+)
 from .scope import entity_area_id, resolve_learning_entities
 
 _LOGGER = logging.getLogger(__name__)
 
-NIGHT_START = time(12, 0)
-NOON_S = 12 * 3600
-DAY_S = 24 * 3600
-
 AreaResolver = Callable[[str], str | None]
-# Learning gate reasons that mean the house is really empty.
-REAL_ABSENCE_REASONS = frozenset({REASON_ALARM, REASON_ALARM_VACATION, REASON_AWAY})
 
 
-# ----------------------------------------------------------------------
-# Night clock
-# ----------------------------------------------------------------------
-def night_of(local: datetime) -> date:
-    """Return the date on which the night containing a local time starts."""
-    day = local.date()
-    return day if local.time() >= NIGHT_START else day - timedelta(days=1)
-
-
-def to_night_seconds(local: datetime, night: date) -> float:
-    """Night clock of a local time (wall clock, so DST keeps clock times)."""
-    return (
-        local.replace(tzinfo=None) - datetime.combine(night, NIGHT_START)
-    ).total_seconds()
-
-
-def from_night_seconds(night: date, seconds: float) -> datetime:
-    """UTC time of a night clock value on a given night."""
-    naive = datetime.combine(night, NIGHT_START) + timedelta(seconds=seconds)
-    return dt_util.as_utc(naive.replace(tzinfo=dt_util.get_default_time_zone()))
+def _name(hass: HomeAssistant, entity_id: str) -> str:
+    state = hass.states.get(entity_id)
+    return state.name if state is not None else entity_id
 
 
 def is_weekend_night(night: date) -> bool:
@@ -268,38 +249,6 @@ def area_targets(
     return targets
 
 
-@dataclass(frozen=True)
-class Transition:
-    """Tonight's target light changes state at a night clock time."""
-
-    seconds: float
-    target: str
-    state: str
-    original: str
-
-
-@dataclass
-class Timeline:
-    """Initial states at 12:00 and the transitions of the night."""
-
-    initial: dict[str, str]
-    transitions: list[Transition]
-
-    @property
-    def lights(self) -> list[str]:
-        """All target lights of the night."""
-        return sorted(set(self.initial) | {t.target for t in self.transitions})
-
-    def state_at(self, seconds: float) -> dict[str, str]:
-        """Desired state of each target light at a night clock time."""
-        states = dict(self.initial)
-        for transition in self.transitions:
-            if transition.seconds > seconds:
-                break
-            states[transition.target] = transition.state
-        return states
-
-
 def build_timeline(
     data: NightData,
     *,
@@ -358,21 +307,7 @@ def build_timeline(
                 Transition(event.seconds, target, event.state, event.entity_id)
             )
 
-    rng = random.Random(seed)
-    spread = max(jitter_minutes, 0) * 60
-    transitions: list[Transition] = []
-    for target in sorted(raw):
-        previous: float | None = None
-        for transition in raw[target]:
-            seconds = transition.seconds + (rng.uniform(-spread, spread) if spread else 0)
-            seconds = min(max(seconds, 0.0), DAY_S - 1)
-            if previous is not None:
-                # Keep each light's order, at least a minute apart.
-                seconds = max(seconds, previous + REPLAY_MIN_GAP_S)
-            previous = seconds
-            transitions.append(replace(transition, seconds=seconds))
-    transitions.sort(key=lambda t: (t.seconds, t.target))
-    return Timeline(initial, transitions)
+    return Timeline(initial, apply_jitter(raw, seed, jitter_minutes))
 
 
 # ----------------------------------------------------------------------
@@ -386,6 +321,19 @@ class ReplayPlan:
     source: date
     window: tuple[float, float]
     timeline: Timeline
+    seed: int = 0
+    names: dict[str, str] = field(default_factory=dict)
+
+    def to_night_plan(self) -> NightPlan:
+        """The plan the player executes."""
+        return NightPlan(
+            night=self.night,
+            window=self.window,
+            timeline=self.timeline,
+            source=MODE_REPLAY,
+            seed=self.seed,
+            names=self.names,
+        )
 
 
 class ReplayEngine:
@@ -399,6 +347,7 @@ class ReplayEngine:
         settings: LumaSettings,
         controller: LightController,
         learning: LearningGate,
+        player: PlanPlayer,
         on_lights: Callable[[list[str]], None] | None = None,
     ) -> None:
         """Initialize the replay engine.
@@ -412,15 +361,11 @@ class ReplayEngine:
         self._controller = controller
         self._learning = learning
         self._on_lights = on_lights
+        self._player = player
         self.status: dict[str, Any] | None = None
         self._saved: dict[str, Any] = {}
-        self._pending: dict[str, str] = {}
-        self._active = False
         self._store: Store[dict[str, Any]] = Store(
             hass, STORE_VERSION, f"{DOMAIN}.{entry_id}.replay"
-        )
-        self._unsub_unlock: CALLBACK_TYPE = controller.add_unlock_listener(
-            self._handle_unlock
         )
 
     async def async_load(self) -> None:
@@ -431,8 +376,7 @@ class ReplayEngine:
 
     @callback
     def async_shutdown(self) -> None:
-        """Stop listening to unlocks."""
-        self._unsub_unlock()
+        """Nothing to release: the player owns the unlock listener."""
 
     # ------------------------------------------------------------------
     # Planning
@@ -497,7 +441,7 @@ class ReplayEngine:
         lights = list(self._config.get(CONF_LIGHTS, []))
         timeline = build_timeline(
             data,
-            by_room=self._settings.replay_by_room,
+            by_room=self._settings.map_by_room,
             targets={
                 area_id: light
                 for area_id, light in area_targets(
@@ -514,8 +458,17 @@ class ReplayEngine:
         )
         self.status = self._status(source)
         self._set_lights(timeline.lights)
+        plan = ReplayPlan(
+            night,
+            data.night,
+            bounds,
+            timeline,
+            seed=int(self._saved["seed"]),
+            names={light: _name(self.hass, light) for light in timeline.lights},
+        )
+        self._player.set_plan(plan.to_night_plan())
         self._notify()
-        return ReplayPlan(night, data.night, bounds, timeline)
+        return plan
 
     def _status(self, source: str | None) -> dict[str, Any]:
         return {
@@ -523,7 +476,7 @@ class ReplayEngine:
             "reason": self._saved.get("reason"),
             "events": self._saved.get("events", 0) if source else 0,
             "eligible_nights": self._saved.get("eligible_nights", 0),
-            "by_room": self._settings.replay_by_room,
+            "by_room": self._settings.map_by_room,
         }
 
     @callback
@@ -536,75 +489,11 @@ class ReplayEngine:
     # ------------------------------------------------------------------
     async def async_play(self, plan: ReplayPlan) -> None:
         """Play tonight's timeline until cancelled by the end of the window."""
-        start, end = plan.window
-        self._active = True
-        self._pending.clear()
-        try:
-            # At the window start, or after a restart: reconcile the current state.
-            now = max(
-                to_night_seconds(dt_util.as_local(dt_util.utcnow()), plan.night), start
-            )
-            for target, state in sorted(plan.timeline.state_at(now).items()):
-                await self._async_apply(target, state, None)
-            for transition in plan.timeline.transitions:
-                if transition.seconds <= now:
-                    continue
-                if transition.seconds >= end:
-                    break  # after the window end
-                at = from_night_seconds(plan.night, transition.seconds)
-                if (delay := (at - dt_util.utcnow()).total_seconds()) > 0:
-                    await asyncio.sleep(delay)
-                await self._async_apply(
-                    transition.target, transition.state, transition.original
-                )
-            await asyncio.Event().wait()  # stay active until the window ends
-        finally:
-            self._active = False
-            self._pending.clear()
-
-    async def _async_apply(self, target: str, desired: str, original: str | None) -> None:
-        state = self.hass.states.get(target)
-        if state is None or state.state not in (STATE_ON, STATE_OFF):
-            return  # unavailable now: skip
-        if self._controller.is_locked(target):
-            # A route is using it: apply the desired state once it is released.
-            self._pending[target] = desired
-            return
-        self._pending.pop(target, None)
-        extra: dict[str, Any] = {"mode": MODE_REPLAY}
-        if original is not None and original != target:
-            extra["original"] = original
-        if desired == STATE_ON and state.state == STATE_OFF:
-            await self._controller.async_switch(target, True, OWNER_SIMULATION, **extra)
-        elif (
-            desired == STATE_OFF
-            and state.state == STATE_ON
-            and (
-                self._controller.owner_of(target) == OWNER_SIMULATION
-                or self._real_absence()
-            )
-        ):
-            await self._controller.async_switch(target, False, **extra)
+        await self._player.async_play(plan.to_night_plan())
 
     def _real_absence(self) -> bool:
-        """Return True while the house is really empty.
-
-        Then Replay switches off any light of its timeline, like the other
-        modes do, so a light left on when leaving follows the source night.
-        A test with people at home keeps the ownership rule.
-        """
-        return bool(self._learning.reasons & REAL_ABSENCE_REASONS)
-
-    @callback
-    def _handle_unlock(self, entities: list[str]) -> None:
-        if not self._active:
-            return
-        for entity_id in entities:
-            if (desired := self._pending.pop(entity_id, None)) is not None:
-                self.hass.async_create_task(
-                    self._async_apply(entity_id, desired, None),
-                    f"{DOMAIN}_replay_unlock_{self._entry_id}",
-                )
+        """Return True while the house is really empty (see PlanPlayer)."""
+        return self._player.real_absence()
 
     @callback
     def _notify(self) -> None:
