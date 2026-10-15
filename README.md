@@ -2,13 +2,73 @@
   <img src="images/icon.png" alt="LumaPresence" width="128">
 </p>
 
+<p align="center">
+  <img src="images/hero.jpg" alt="A Mediterranean house at dusk with a few warm lit windows: a bedroom, the kitchen and the living room with the TV on" width="100%">
+</p>
+
 # LumaPresence
 
 Presence simulation for Home Assistant that makes an empty house look lived in. LumaPresence switches lights on and off in a random but believable way, works alongside your alarm, and learns how your home is really used.
 
 > **Status: phase 2 complete (v0.5.0).** Sun, Time and Replay modes, learning data collection, night sequences and built-in alarm control. The Dream mode comes in phase 3.
 
+## How it works
+
+```mermaid
+flowchart LR
+    A([Alarm armed away]) -->|alarm control| M{{LumaPresence<br/>master switch}}
+    U([You, manually]) --> M
+    M --> W[Night window<br/>sunset → end time]
+    W --> S[Sun / Time<br/>random but bounded]
+    W --> R[Replay<br/>a real night, by room]
+    W --> Q[Night sequences<br/>bedroom → bathroom → back]
+    S --> C[Light controller<br/>ownership · locks]
+    R --> C
+    Q --> C
+    C --> L[(Your lights)]
+    L -. real usage, people at home .-> G[Learning gate]
+    G --> D[(Learned nights)]
+    D --> R
+    C -. unavailable lights .-> X[Repairs + event]
+    D2([Alarm disarmed]) -->|stop · lights when stopping| M
+```
+
+1. **Arm the alarm** (or switch the simulation on): LumaPresence waits for its night window.
+2. **During the night** it plays one mode — random but believable (*Sun*/*Time*) or a real night of your own house (*Replay*) — plus occasional night walks to the bathroom.
+3. **While you are home** it quietly learns how the house is used, ignoring automations, its own actions and absences.
+4. **Disarm** and it stops, never switching off a light that a person turned on.
+
+### A typical night
+
+```mermaid
+gantt
+    title A night with LumaPresence (example)
+    dateFormat YYYY-MM-DD HH:mm
+    axisFormat %H:%M
+    section Window
+    Simulation window (sunset → end)   :active, w, 2026-10-16 19:20, 2026-10-17 02:00
+    section Front
+    Lucía's room                         :f1, 2026-10-16 19:35, 2026-10-16 22:50
+    Mario Jr's floor lamp              :f2, 2026-10-16 20:10, 2026-10-17 00:30
+    section Rear
+    Kitchen                             :r1, 2026-10-16 19:40, 2026-10-16 21:15
+    Elena's lamp                      :r2, 2026-10-16 21:05, 2026-10-16 23:40
+    section Night walks
+    Suite → bathroom                    :n1, 2026-10-17 01:20, 4m
+    Lucía → bathroom                     :n2, 2026-10-17 02:55, 3m
+```
+
 ## Installation (HACS)
+
+```mermaid
+flowchart LR
+    I[1 · Install from HACS<br/>and restart] --> A[2 · Add integration<br/>LumaPresence]
+    A --> L[3 · Simulation lights<br/>and facades]
+    L --> P[4 · Learning scope<br/>and preview]
+    P --> H[5 · People and alarm<br/>alarm control on]
+    H --> R[6 · Optional: add<br/>night routes]
+    R --> D([Done · arm and go])
+```
 
 1. In HACS, open the ⋮ menu → **Custom repositories**, add `https://github.com/jdgarcia99/ha-luma-presence` with category **Integration**.
 2. Download **LumaPresence** and restart Home Assistant.
@@ -156,6 +216,19 @@ The simulation always ends at sunrise at the latest. Scheduled ends turn the lig
 LumaPresence only turns off lights that it turned on itself and that nobody has touched since. If you come home and switch on a light, it will never turn it off.
 
 ## Learning
+
+```mermaid
+flowchart TD
+    E[Light changed] --> Q1{Made by LumaPresence<br/>or an automation?}
+    Q1 -- yes --> X[Ignored]
+    Q1 -- no --> Q2{Alarm armed away or vacation,<br/>nobody home, simulation on<br/>or learning paused?}
+    Q2 -- yes --> X
+    Q2 -- no --> Q3{Inside the return margin<br/>after an absence?}
+    Q3 -- yes --> X
+    Q3 -- no --> K[Kept as real usage<br/>after the safety delay]
+    K --> N[(Learned nights<br/>used by Replay and Dream)]
+```
+
 
 From day one, LumaPresence stores real usage of the lights in its [learning scope](#learning-scope) in `.storage`, per day and only while the house is occupied, so it does not depend on the recorder's retention.
 
