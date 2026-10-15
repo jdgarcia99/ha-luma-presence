@@ -79,7 +79,8 @@ Events for lights that are unavailable, disabled or no longer learned are skippe
 
 - Every change is shifted by a random amount of up to *Replay time variation* minutes (10 by default), keeping each light's order, at least a minute apart.
 - At the window start, each light is set to the state it had at that time on the source night.
-- Replay is faithful: the minimum, maximum and facade limits are not applied. The [ownership rule](#ownership-rule) still applies, and a light in use by a night route gets its Replay state once the route releases it.
+- Replay is faithful: the minimum, maximum and facade limits are not applied. A light in use by a night route gets its Replay state once the route releases it.
+- During a real absence (the alarm is armed away or nobody is home), Replay switches off any light of its timeline when the source night did, even if the simulation did not switch it on: a light left on when leaving follows the source night, as in Sun and Time modes. Without a real absence, for example in a test with people at home, the [ownership rule](#ownership-rule) applies: Replay only switches off the lights the simulation switched on.
 - The window end works as in the other modes: lights the simulation turned on are switched off gradually.
 - After a restart during the night, Replay rebuilds the same timeline and continues.
 

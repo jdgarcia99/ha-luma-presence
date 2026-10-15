@@ -22,6 +22,9 @@ from homeassistant.util import dt as dt_util
 from custom_components.luma_presence.const import (
     DOMAIN,
     EVENT_ACTION,
+    REASON_ALARM,
+    REASON_AWAY,
+    REASON_SIMULATION_TEST,
     REPLAY_MOST_RECENT,
     REPLAY_NO_DATA,
     REPLAY_NOT_ENOUGH_EVENTS,
@@ -296,11 +299,15 @@ async def _move(hass: HomeAssistant, freezer: FrozenDateTimeFactory, when: datet
 
 
 async def _setup_replay(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory, learned: dict | None
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    learned: dict | None,
+    *,
+    away: bool = True,
 ) -> MockConfigEntry:
     freezer.move_to(_local(TONIGHT, 12))
-    hass.states.async_set("person.mario", "not_home")
-    hass.states.async_set("alarm_control_panel.home_alarm", "armed_away")
+    hass.states.async_set("person.mario", "not_home" if away else "home")
+    hass.states.async_set("alarm_control_panel.home_alarm", "armed_away" if away else "disarmed")
     entry = MockConfigEntry(domain=DOMAIN, title="LumaPresence", options=OPTIONS, version=2)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -364,6 +371,45 @@ async def test_replay_plays_the_source_night(
     assert ("off", "light.hall") in played
     assert ("on", "switch.oficina") not in played
     assert runtime.engine.status != "simulating"
+
+
+async def test_real_absence_switches_off_lights_left_on(
+    hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory
+) -> None:
+    """While the house is empty, a light left on follows the source night."""
+    entry = await _setup_replay(hass, freezer, _learned())
+    learning = entry.runtime_data.learning
+    assert {REASON_ALARM, REASON_AWAY} <= learning.reasons
+    # Someone left it on when leaving: LumaPresence does not own it.
+    hass.states.async_set("light.salon", STATE_ON)
+    assert entry.runtime_data.controller.owner_of("light.salon") is None
+
+    # Off at the window start, as on the source night until 21:00...
+    await _move(hass, freezer, entry.runtime_data.engine.next_event + timedelta(seconds=1))
+    await _until(lambda: _is_on(hass, "light.bedroom"))
+    await _until(lambda: not _is_on(hass, "light.salon"))
+    # ...then on at 21:00 and off at 22:00.
+    await _move(hass, freezer, _local(TONIGHT, 21, 0, 30))
+    await _until(lambda: _is_on(hass, "light.salon"))
+    await _move(hass, freezer, _local(TONIGHT, 22, 0, 30))
+    await _until(lambda: not _is_on(hass, "light.salon"))
+
+
+async def test_test_with_people_home_keeps_ownership_rule(
+    hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory
+) -> None:
+    """With people at home, Replay only switches off what the simulation switched on."""
+    entry = await _setup_replay(hass, freezer, _learned(), away=False)
+    learning = entry.runtime_data.learning
+    assert learning.reasons == {REASON_SIMULATION_TEST}
+    hass.states.async_set("light.salon", STATE_ON)
+
+    await _move(hass, freezer, entry.runtime_data.engine.next_event + timedelta(seconds=1))
+    await _until(lambda: _is_on(hass, "light.bedroom"))
+    for when in (_local(TONIGHT, 21, 0, 30), _local(TONIGHT, 22, 0, 30)):
+        await _move(hass, freezer, when)
+        assert _is_on(hass, "light.salon")
+    assert entry.runtime_data.controller.owner_of("light.salon") is None
 
 
 async def test_locked_light_gets_its_state_after_unlock(

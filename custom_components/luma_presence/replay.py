@@ -34,6 +34,8 @@ from .const import (
     DOMAIN,
     MODE_REPLAY,
     OWNER_SIMULATION,
+    REASON_ALARM,
+    REASON_AWAY,
     REPLAY_MIN_COVERAGE,
     REPLAY_MIN_GAP_S,
     REPLAY_MOST_RECENT,
@@ -59,6 +61,8 @@ NOON_S = 12 * 3600
 DAY_S = 24 * 3600
 
 AreaResolver = Callable[[str], str | None]
+# Learning gate reasons that mean the house is really empty.
+REAL_ABSENCE_REASONS = frozenset({REASON_ALARM, REASON_AWAY})
 
 
 # ----------------------------------------------------------------------
@@ -574,9 +578,21 @@ class ReplayEngine:
         elif (
             desired == STATE_OFF
             and state.state == STATE_ON
-            and self._controller.owner_of(target) == OWNER_SIMULATION
+            and (
+                self._controller.owner_of(target) == OWNER_SIMULATION
+                or self._real_absence()
+            )
         ):
             await self._controller.async_switch(target, False, **extra)
+
+    def _real_absence(self) -> bool:
+        """Return True while the house is really empty.
+
+        Then Replay switches off any light of its timeline, like the other
+        modes do, so a light left on when leaving follows the source night.
+        A test with people at home keeps the ownership rule.
+        """
+        return bool(self._learning.reasons & REAL_ABSENCE_REASONS)
 
     @callback
     def _handle_unlock(self, entities: list[str]) -> None:
