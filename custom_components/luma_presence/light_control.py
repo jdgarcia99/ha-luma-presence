@@ -70,6 +70,8 @@ class LightController:
         self._own_set: set[str] = set()
         self._locks: Counter[str] = Counter()
         self._unlock_listeners: list[Callable[[list[str]], None]] = []
+        self._data: dict[str, Any] = {}
+        self._values: dict[str, Any] = {}
         self._unsub_state: CALLBACK_TYPE | None = None
         # Same storage key as v0.2, when the engine kept the owned lights.
         self._store: Store[dict[str, Any]] = Store(
@@ -79,11 +81,28 @@ class LightController:
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+    async def async_load(self) -> None:
+        """Load the stored data, before the entities are restored."""
+        self._data = await self._store.async_load() or {}
+        self._values = dict(self._data.get("values", {}))
+
+    def get_value(self, key: str) -> Any:
+        """A value kept across restarts (master switch origin, alarm override)."""
+        return self._values.get(key)
+
+    @callback
+    def set_value(self, key: str, value: Any) -> None:
+        """Keep a value across restarts."""
+        if value is None:
+            self._values.pop(key, None)
+        else:
+            self._values[key] = value
+        self._save()
+
     async def async_start(self, entities: Iterable[str]) -> None:
         """Restore ownership and follow the lights LumaPresence may switch."""
         tracked = sorted(set(entities))
-        data = await self._store.async_load() or {}
-        owned = data.get("owned", [])
+        owned = self._data.get("owned", [])
         if isinstance(owned, list):  # v0.2: a list of simulation lights
             owned = dict.fromkeys(owned, OWNER_SIMULATION)
         for entity_id, owner in owned.items():
@@ -266,7 +285,10 @@ class LightController:
         async_dispatcher_send(self.hass, signal_update(self._entry_id))
 
     def _data_to_save(self) -> dict[str, Any]:
-        return {"owned": {entity_id: who for entity_id, (who, _) in self._owned.items()}}
+        return {
+            "owned": {entity_id: who for entity_id, (who, _) in self._owned.items()},
+            "values": self._values,
+        }
 
     @callback
     def _save(self) -> None:

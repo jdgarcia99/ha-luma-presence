@@ -21,6 +21,7 @@ from .const import (
 )
 
 if TYPE_CHECKING:
+    from .alarm import AlarmController
     from .engine import SimulationEngine
     from .learning import LearningGate
     from .light_control import LightController
@@ -123,6 +124,7 @@ class LumaRuntime:
     learning: LearningGate
     monitor: AvailabilityMonitor
     replay: ReplayEngine
+    alarm: AlarmController | None = None
 
     async def async_setting_changed(self, key: str) -> None:
         """React to a setting changed from one of the config entities."""

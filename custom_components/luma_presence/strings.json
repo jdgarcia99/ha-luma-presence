@@ -54,12 +54,16 @@
         "data": {
           "persons": "People",
           "alarm_entity": "Alarm panel",
+          "alarm_activate_states": "Alarm states that turn the simulation on",
+          "alarm_control": "Control the simulation with the alarm",
           "margin_before_hours": "Learning margin before an absence",
           "margin_after_hours": "Learning margin after returning"
         },
         "data_description": {
           "persons": "When none of these people is home, the house counts as empty and learning stops.",
           "alarm_entity": "Learning stops while this alarm is armed away.",
+          "alarm_activate_states": "Armed away and armed vacation by default. Other states, such as pending or triggered, never change the simulation.",
+          "alarm_control": "Arming the alarm in one of the states below turns the simulation on; disarming it turns it off and applies \"Lights when stopping\". Turning the simulation off by hand while armed is respected until the next arming. Your own arm/disarm automations doing the same keep working.",
           "margin_before_hours": "Hours of activity discarded just before an absence is detected.",
           "margin_after_hours": "Hours learning stays paused after coming back."
         }
@@ -68,7 +72,9 @@
     "error": {
       "no_lights": "Select at least one light.",
       "facade_not_subset": "Front and rear lights must also be simulation lights.",
-      "facade_overlap": "A light cannot be both a front and a rear light."
+      "facade_overlap": "A light cannot be both a front and a rear light.",
+      "alarm_required": "Select the alarm panel to control the simulation with it.",
+      "activate_states_required": "Select at least one alarm state."
     }
   },
   "options": {
@@ -137,12 +143,16 @@
         "data": {
           "persons": "People",
           "alarm_entity": "Alarm panel",
+          "alarm_activate_states": "Alarm states that turn the simulation on",
+          "alarm_control": "Control the simulation with the alarm",
           "margin_before_hours": "Learning margin before an absence",
           "margin_after_hours": "Learning margin after returning"
         },
         "data_description": {
           "persons": "When none of these people is home, the house counts as empty and learning stops.",
           "alarm_entity": "Learning stops while this alarm is armed away.",
+          "alarm_activate_states": "Armed away and armed vacation by default. Other states, such as pending or triggered, never change the simulation.",
+          "alarm_control": "Arming the alarm in one of the states below turns the simulation on; disarming it turns it off and applies \"Lights when stopping\". Turning the simulation off by hand while armed is respected until the next arming. Your own arm/disarm automations doing the same keep working.",
           "margin_before_hours": "Hours of activity discarded just before an absence is detected.",
           "margin_after_hours": "Hours learning stays paused after coming back."
         }
@@ -177,7 +187,9 @@
     "error": {
       "no_lights": "Select at least one light.",
       "facade_not_subset": "Front and rear lights must also be simulation lights.",
-      "facade_overlap": "A light cannot be both a front and a rear light."
+      "facade_overlap": "A light cannot be both a front and a rear light.",
+      "alarm_required": "Select the alarm panel to control the simulation with it.",
+      "activate_states_required": "Select at least one alarm state."
     }
   },
   "config_subentries": {
@@ -232,7 +244,24 @@
     },
     "switch": {
       "simulation": {
-        "name": "Simulation"
+        "name": "Simulation",
+        "state_attributes": {
+          "owned_lights": {
+            "name": "Owned lights"
+          },
+          "activated_by": {
+            "name": "Activated by",
+            "state": {
+              "alarm": "Alarm",
+              "manual": "Manual",
+              "service": "Service",
+              "restore": "Restored after a restart"
+            }
+          },
+          "activated_at": {
+            "name": "Activated at"
+          }
+        }
       },
       "late_arrival": {
         "name": "Late arrival"
@@ -336,7 +365,8 @@
               "alarm_armed_away": "Alarm armed away",
               "nobody_home": "Nobody at home",
               "paused": "Paused manually",
-              "return_margin": "Return margin"
+              "return_margin": "Return margin",
+              "alarm_armed_vacation": "Alarm armed vacation"
             }
           }
         }
@@ -414,6 +444,15 @@
         "simulation": "simulation light",
         "route": "route",
         "replay": "replay"
+      }
+    },
+    "alarm_state": {
+      "options": {
+        "armed_away": "Armed away",
+        "armed_vacation": "Armed vacation",
+        "armed_home": "Armed home",
+        "armed_night": "Armed night",
+        "armed_custom_bypass": "Armed custom bypass"
       }
     }
   },

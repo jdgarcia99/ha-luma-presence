@@ -61,7 +61,14 @@ class LumaMasterSwitch(LumaEntity, SwitchEntity, RestoreEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Expose the lights currently owned by the simulation."""
-        return {"owned_lights": self._runtime.engine.owned_lights}
+        engine = self._runtime.engine
+        return {
+            "owned_lights": engine.owned_lights,
+            "activated_by": engine.activated_by,
+            "activated_at": engine.activated_at.isoformat()
+            if engine.activated_at
+            else None,
+        }
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable the simulation."""

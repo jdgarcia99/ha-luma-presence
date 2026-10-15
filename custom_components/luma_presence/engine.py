@@ -31,6 +31,9 @@ from .const import (
     MAX_START_JITTER_MIN,
     MODE_REPLAY,
     MODE_SUN,
+    ORIGIN_MANUAL,
+    ORIGIN_RESTORE,
+    ORIGIN_SCHEDULE,
     OWNER_SIMULATION,
     STATUS_IDLE,
     STATUS_SIMULATING,
@@ -79,6 +82,11 @@ class SimulationEngine:
         self.replay: ReplayEngine | None = None
 
         self.enabled = False
+        # Who turned the master switch on, and when (cleared when it turns off).
+        self.activated_by: str | None = None
+        self.activated_at: datetime | None = None
+        # Origin of the last change of the master switch, on or off.
+        self.last_origin: str | None = None
         self.next_event: datetime | None = None
         self.next_event_kind: str | None = None
 
@@ -137,8 +145,19 @@ class SimulationEngine:
 
     @callback
     def restore_enabled(self, enabled: bool) -> None:
-        """Restore the master switch state before the engine starts."""
+        """Restore the master switch state before the engine starts.
+
+        The origin saved before the restart is kept (so a disarm while Home
+        Assistant was down can still be told apart); "restore" is used only
+        when none was saved.
+        """
         self.enabled = enabled
+        if not enabled:
+            self._set_origin(None)
+            return
+        saved = self.controller.get_value("master") or {}
+        at = dt_util.parse_datetime(saved["at"]) if saved.get("at") else None
+        self._set_origin(saved.get("origin") or ORIGIN_RESTORE, at)
 
     async def async_start(self) -> None:
         """Start the engine once Home Assistant is running."""
@@ -158,12 +177,22 @@ class SimulationEngine:
         self._stop_task = None
 
     async def async_set_enabled(
-        self, enabled: bool, *, stop_behavior: str | None = None
+        self,
+        enabled: bool,
+        *,
+        stop_behavior: str | None = None,
+        origin: str = ORIGIN_MANUAL,
     ) -> None:
-        """Turn the master switch on or off."""
+        """Turn the master switch on or off.
+
+        Turning it on when it is on, or off when it is off, does nothing, so
+        user automations doing the same as the alarm control never conflict.
+        """
         if enabled == self.enabled:
             return
         self.enabled = enabled
+        self.last_origin = origin
+        self._set_origin(origin if enabled else None)
         # Listeners run first: a running route is cancelled before its lights
         # are handled below together with the simulation's lights.
         for listener in list(self._enabled_listeners):
@@ -174,7 +203,9 @@ class SimulationEngine:
             else:
                 self._cancel_timer()
                 await self._async_end_simulation(
-                    stop_behavior or self.settings.stop_behavior, all_owners=True
+                    stop_behavior or self.settings.stop_behavior,
+                    all_owners=True,
+                    origin=origin,
                 )
         self._notify()
 
@@ -307,7 +338,12 @@ class SimulationEngine:
         if self._stop_task is not None:
             self._stop_task.cancel()
             self._stop_task = None
-        self.controller.record(None, "simulation_started", mode=self.settings.mode)
+        self.controller.record(
+            None,
+            "simulation_started",
+            mode=self.settings.mode,
+            origin=self.activated_by,
+        )
         self._sim_mode = self.settings.mode
         self._sim_task = self.hass.async_create_background_task(
             self._async_run(window),
@@ -394,16 +430,21 @@ class SimulationEngine:
             await self._async_switch(target, turn_on)
 
     async def _async_end_simulation(
-        self, behavior: str, *, all_owners: bool = False
+        self,
+        behavior: str,
+        *,
+        all_owners: bool = False,
+        origin: str = ORIGIN_SCHEDULE,
     ) -> None:
         """Stop the loop and handle the lights the simulation owns.
 
         With `all_owners`, the lights of an interrupted route are handled too.
+        `origin` says who stopped it: the master switch origin, or "schedule".
         """
         if self._sim_task is not None:
             self._sim_task.cancel()
             self._sim_task = None
-            self.controller.record(None, "simulation_stopped")
+            self.controller.record(None, "simulation_stopped", origin=origin)
         if self._stop_task is not None:
             self._stop_task.cancel()
             self._stop_task = None
@@ -442,6 +483,17 @@ class SimulationEngine:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+    @callback
+    def _set_origin(self, origin: str | None, at: datetime | None = None) -> None:
+        self.activated_by = origin
+        self.activated_at = (at or dt_util.utcnow()) if origin else None
+        self.controller.set_value(
+            "master",
+            {"origin": origin, "at": self.activated_at.isoformat()}
+            if origin and self.activated_at
+            else None,
+        )
+
     @callback
     def _notify(self) -> None:
         async_dispatcher_send(self.hass, signal_update(self._entry_id))

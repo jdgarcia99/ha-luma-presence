@@ -19,6 +19,7 @@ from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
+from .alarm import AlarmController
 from .const import (
     ATTR_CONFIG_ENTRY_ID,
     ATTR_END_DATE,
@@ -26,6 +27,8 @@ from .const import (
     ATTR_ROUTE,
     ATTR_START_DATE,
     CONF_ALARM,
+    CONF_ALARM_ACTIVATE_STATES,
+    CONF_ALARM_CONTROL,
     CONF_LEARN_AREAS,
     CONF_LEARN_EXCLUDE,
     CONF_LEARN_EXTRA,
@@ -34,8 +37,11 @@ from .const import (
     CONF_PERSONS,
     CONF_REAR_LIGHTS,
     CONF_UNAVAILABLE_ALERT_MINUTES,
+    DEFAULT_ALARM_ACTIVATE_STATES,
+    DEFAULT_ALARM_CONTROL,
     DEFAULT_UNAVAILABLE_ALERT_MINUTES,
     DOMAIN,
+    ORIGIN_SERVICE,
     SERVICE_FORGET_PERIOD,
     SERVICE_RUN_SEQUENCE,
     SERVICE_START,
@@ -104,12 +110,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     async def _start(call: ServiceCall) -> None:
         for runtime in _runtimes(hass, call):
-            await runtime.engine.async_set_enabled(True)
+            await runtime.engine.async_set_enabled(True, origin=ORIGIN_SERVICE)
 
     async def _stop(call: ServiceCall) -> None:
         for runtime in _runtimes(hass, call):
             await runtime.engine.async_set_enabled(
-                False, stop_behavior=call.data.get(ATTR_LIGHTS_BEHAVIOR)
+                False,
+                stop_behavior=call.data.get(ATTR_LIGHTS_BEHAVIOR),
+                origin=ORIGIN_SERVICE,
             )
 
     async def _forget(call: ServiceCall) -> None:
@@ -154,6 +162,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
     ]
     settings = LumaSettings()
     controller = LightController(hass, entry.entry_id)
+    # Loaded now: restoring the master switch reads its saved origin.
+    await controller.async_load()
     monitor = AvailabilityMonitor(
         hass,
         entry.entry_id,
@@ -181,6 +191,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
     )
     await replay.async_load()
     engine.replay = replay
+    alarm: AlarmController | None = None
+    if config.get(CONF_ALARM_CONTROL, DEFAULT_ALARM_CONTROL) and config.get(CONF_ALARM):
+        alarm = AlarmController(
+            hass,
+            entry.entry_id,
+            config[CONF_ALARM],
+            config.get(CONF_ALARM_ACTIVATE_STATES, DEFAULT_ALARM_ACTIVATE_STATES),
+            engine,
+            controller,
+        )
     entry.runtime_data = LumaRuntime(
         hass=hass,
         entry_id=entry.entry_id,
@@ -193,6 +213,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         learning=learning,
         monitor=monitor,
         replay=replay,
+        alarm=alarm,
     )
 
     # Entities restore their settings while the platforms are set up.
@@ -206,6 +227,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         await sequences.async_start()
         await learning.async_start()
         await monitor.async_start()
+        # Last: the master switch is restored and every engine has started.
+        if alarm is not None:
+            await alarm.async_start()
 
     entry.async_on_unload(async_at_started(hass, _async_start))
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
@@ -241,6 +265,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> boo
     await runtime.controller.async_shutdown()
     await runtime.monitor.async_shutdown()
     runtime.replay.async_shutdown()
+    if runtime.alarm is not None:
+        await runtime.alarm.async_shutdown()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 

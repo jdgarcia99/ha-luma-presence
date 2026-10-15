@@ -6,7 +6,7 @@
 
 Presence simulation for Home Assistant that makes an empty house look lived in. LumaPresence switches lights on and off in a random but believable way, works alongside your alarm, and learns how your home is really used.
 
-> **Status: phase 2 complete (v0.4.0).** Sun, Time and Replay modes, learning data collection and night sequences. An optional built-in alarm integration comes next, and the Dream mode in phase 3.
+> **Status: phase 2 complete (v0.5.0).** Sun, Time and Replay modes, learning data collection, night sequences and built-in alarm control. The Dream mode comes in phase 3.
 
 ## Installation (HACS)
 
@@ -24,7 +24,7 @@ Setup walks through the same sections that the integration's **Configure** butto
 | Facades | Front lights and rear lights, chosen among the simulation lights |
 | Learning | Indoor floors, indoor areas, extra entities, excluded entities, *Automatically exclude indicator LEDs*, and *Learn only from human actions* (ignores changes made by automations and scripts) |
 | Learning preview | Read-only list of the entities that will be learned, and of the indicator LEDs left out automatically |
-| People and alarm | People, alarm panel, and the learning margins: hours discarded before an absence, and hours learning stays paused after returning |
+| People and alarm | People, alarm panel, [alarm control](#alarm-control), and the learning margins: hours discarded before an absence, and hours learning stays paused after returning |
 | Night sequences | Delay between the steps of a route and time spent at its destination (see [Night sequences](#night-sequences)) |
 | Monitoring | Minutes a light may stay unavailable before an alert (see [Unavailable lights](#unavailable-lights)) |
 
@@ -46,6 +46,22 @@ LumaPresence learns from every real indoor light, not only from the simulation l
 The list is recomputed a few seconds after an entity, device, area or floor changes, and each learned event stores the area of the light.
 
 Installations upgraded from v0.1 learn from every floor that exists at upgrade time; data learned before the upgrade is kept.
+
+## Alarm control
+
+LumaPresence can follow your alarm panel by itself, with no automations: arming the alarm starts the simulation and disarming it stops it.
+
+- **Enable it** in **Configure → People and alarm**: choose the alarm panel, turn on *Control the simulation with the alarm* and pick the *Alarm states that turn the simulation on* (armed away and armed vacation by default; armed home, armed night and armed custom bypass are also available). It is off by default.
+- **Arming** into one of those states turns the master switch on. Other states (arming, pending, triggered, or an armed state you did not pick) never change it; a triggered alarm keeps the simulation running.
+- **Disarming** turns the master switch off, and *Lights when stopping* applies as with any other stop.
+- Changes coming from `unavailable` or `unknown` are ignored, so a panel reconnecting never starts or stops the simulation.
+- **Manual override:** if you turn the simulation off by hand (or with a service or an automation) while the alarm is armed, it stays off until the alarm is disarmed (or set to a state you did not pick) and armed again.
+- **After a restart**, LumaPresence reconciles what happened while Home Assistant was down: if the alarm is armed and the simulation is off (and you did not turn it off by hand during this arming), it turns on; if the alarm is disarmed and the simulation was turned on by the alarm, it turns off. A simulation you turned on by hand stays on, and nothing happens while the panel is unavailable.
+- With *armed vacation* among the chosen states, learning also treats armed vacation as an absence (`alarm_armed_vacation` in `paused_reasons`).
+
+It can replace your own arm/disarm automations, or coexist with them: turning the master switch on when it is already on, or off when it is already off, does nothing.
+
+`switch.luma_presence_simulation` shows who turned it on in `activated_by` (`alarm`, `manual`, `service`, or `restore` when restored after a restart without a known origin) and when in `activated_at`; both are cleared when it turns off. The `luma_presence_action` events for `simulation_started` and `simulation_stopped` include the `origin` (`schedule` when the window ends).
 
 ## Replay mode
 
@@ -144,7 +160,7 @@ LumaPresence only turns off lights that it turned on itself and that nobody has 
 
 From day one, LumaPresence stores real usage of the lights in its [learning scope](#learning-scope) in `.storage`, per day and only while the house is occupied, so it does not depend on the recorder's retention.
 
-Learning pauses while the simulation is enabled, the alarm is armed away, nobody is home, or it has been paused manually. Excluded days never count as days without activity: statistics are based only on observed time. After an absence longer than 48 hours, the whole day of the return is excluded.
+Learning pauses while the simulation is enabled, the alarm is armed away (or armed vacation, with [alarm control](#alarm-control)), nobody is home, or it has been paused manually. Excluded days never count as days without activity: statistics are based only on observed time. After an absence longer than 48 hours, the whole day of the return is excluded.
 
 Turning the simulation on while someone is at home is treated as a **test**, not an absence (`simulation_test` in the `paused_reasons` attribute of `binary_sensor.luma_presence_learning_active`): what was observed until then is kept, and learning starts again as soon as the test ends, with no return margin. If everybody leaves or the alarm is armed away during the test, the normal absence rules apply from that moment. Without people configured, the simulation always counts as an absence. Light changes made by LumaPresence itself are never learned.
 
@@ -181,8 +197,7 @@ The user interface is available in English and Spanish. Contributions for other 
 
 ## Roadmap
 
-- **Phase 2** (done): night sequences (v0.3.0) and Replay mode (v0.4.0).
-- **Next (optional)**: built-in alarm integration, configurable from LumaPresence: arming the alarm in away mode turns the simulation on, and disarming it stops the simulation.
+- **Phase 2** (done): night sequences (v0.3.0), Replay mode (v0.4.0) and built-in alarm control (v0.5.0).
 - **Phase 3**: Dream mode (new, believable patterns generated from what has been learned, with optional AI), repairs and diagnostics.
 
 ## Development

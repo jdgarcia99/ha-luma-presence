@@ -40,11 +40,17 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
 )
 
 from .const import (
+    ALARM_ACTIVATE_CHOICES,
     CONF_ALARM,
+    CONF_ALARM_ACTIVATE_STATES,
+    CONF_ALARM_CONTROL,
     CONF_AUTO_EXCLUDE_INDICATORS,
     CONF_DESTINATION,
     CONF_DWELL_MAX,
@@ -65,6 +71,8 @@ from .const import (
     CONF_STEP_DELAY_MAX,
     CONF_STEP_DELAY_MIN,
     CONF_UNAVAILABLE_ALERT_MINUTES,
+    DEFAULT_ALARM_ACTIVATE_STATES,
+    DEFAULT_ALARM_CONTROL,
     DEFAULT_AUTO_EXCLUDE_INDICATORS,
     DEFAULT_DWELL_MAX,
     DEFAULT_DWELL_MIN,
@@ -121,7 +129,7 @@ _EMPTY_VALUES: dict[str, dict[str, Any]] = {
         CONF_LEARN_EXTRA: [],
         CONF_LEARN_EXCLUDE: [],
     },
-    STEP_PRESENCE: {CONF_PERSONS: [], CONF_ALARM: None},
+    STEP_PRESENCE: {CONF_PERSONS: [], CONF_ALARM: None, CONF_ALARM_ACTIVATE_STATES: []},
 }
 
 
@@ -141,6 +149,8 @@ def _default_options(hass: HomeAssistant) -> dict[str, Any]:
         CONF_PERSONS: [],
         CONF_MARGIN_BEFORE: DEFAULT_MARGIN_BEFORE,
         CONF_MARGIN_AFTER: DEFAULT_MARGIN_AFTER,
+        CONF_ALARM_CONTROL: DEFAULT_ALARM_CONTROL,
+        CONF_ALARM_ACTIVATE_STATES: list(DEFAULT_ALARM_ACTIVATE_STATES),
         CONF_UNAVAILABLE_ALERT_MINUTES: DEFAULT_UNAVAILABLE_ALERT_MINUTES,
     }
 
@@ -214,6 +224,25 @@ def _presence_schema(options: Mapping[str, Any]) -> vol.Schema:
                 EntitySelector(EntitySelectorConfig(domain="alarm_control_panel"))
             ),
             vol.Required(
+                CONF_ALARM_CONTROL,
+                default=options.get(CONF_ALARM_CONTROL, DEFAULT_ALARM_CONTROL),
+            ): BooleanSelector(),
+            vol.Optional(
+                CONF_ALARM_ACTIVATE_STATES,
+                description={
+                    "suggested_value": options.get(
+                        CONF_ALARM_ACTIVATE_STATES, DEFAULT_ALARM_ACTIVATE_STATES
+                    )
+                },
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=ALARM_ACTIVATE_CHOICES,
+                    multiple=True,
+                    mode=SelectSelectorMode.LIST,
+                    translation_key="alarm_state",
+                )
+            ),
+            vol.Required(
                 CONF_MARGIN_BEFORE,
                 default=options.get(CONF_MARGIN_BEFORE, DEFAULT_MARGIN_BEFORE),
             ): _HOURS_SELECTOR,
@@ -267,6 +296,16 @@ def _monitoring_schema(options: Mapping[str, Any]) -> vol.Schema:
 def _validate_lights(options: Mapping[str, Any]) -> dict[str, str]:
     if not options.get(CONF_LIGHTS):
         return {CONF_LIGHTS: "no_lights"}
+    return {}
+
+
+def _validate_presence(options: Mapping[str, Any]) -> dict[str, str]:
+    if not options.get(CONF_ALARM_CONTROL):
+        return {}
+    if not options.get(CONF_ALARM):
+        return {CONF_ALARM: "alarm_required"}
+    if not options.get(CONF_ALARM_ACTIVATE_STATES):
+        return {CONF_ALARM_ACTIVATE_STATES: "activate_states_required"}
     return {}
 
 
@@ -382,12 +421,18 @@ class _LumaSteps:
     async def async_step_presence(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """People, alarm panel and learning margins."""
+        """People, alarm panel, alarm control and learning margins."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            self._update(STEP_PRESENCE, user_input)
-            return await self._async_after(STEP_PRESENCE)
+            candidate = {**self._options, **_EMPTY_VALUES[STEP_PRESENCE], **user_input}
+            errors = _validate_presence(candidate)
+            if not errors:
+                self._update(STEP_PRESENCE, user_input)
+                return await self._async_after(STEP_PRESENCE)
         return self.async_show_form(
-            step_id=STEP_PRESENCE, data_schema=_presence_schema(self._options)
+            step_id=STEP_PRESENCE,
+            data_schema=_presence_schema({**self._options, **(user_input or {})}),
+            errors=errors,
         )
 
 

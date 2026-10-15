@@ -23,6 +23,8 @@ CONF_LEARN_EXTRA: Final = "learn_extra"
 CONF_LEARN_EXCLUDE: Final = "learn_exclude"
 CONF_AUTO_EXCLUDE_INDICATORS: Final = "learn_auto_exclude_indicators"
 CONF_UNAVAILABLE_ALERT_MINUTES: Final = "unavailable_alert_minutes"
+CONF_ALARM_CONTROL: Final = "alarm_control"
+CONF_ALARM_ACTIVATE_STATES: Final = "alarm_activate_states"
 
 CONF_STEP_DELAY_MIN: Final = "step_delay_min"
 CONF_STEP_DELAY_MAX: Final = "step_delay_max"
@@ -38,6 +40,26 @@ DEFAULT_DWELL_MIN: Final = 2.0
 DEFAULT_DWELL_MAX: Final = 5.0
 DEFAULT_AUTO_EXCLUDE_INDICATORS: Final = True
 DEFAULT_UNAVAILABLE_ALERT_MINUTES: Final = 60
+DEFAULT_ALARM_CONTROL: Final = False
+
+# Alarm states that may turn the simulation on
+ALARM_ACTIVATE_CHOICES: Final = [
+    "armed_away",
+    "armed_vacation",
+    "armed_home",
+    "armed_night",
+    "armed_custom_bypass",
+]
+DEFAULT_ALARM_ACTIVATE_STATES: Final = ["armed_away", "armed_vacation"]
+
+# Who turned the master switch on or off
+ORIGIN_ALARM: Final = "alarm"
+ORIGIN_MANUAL: Final = "manual"
+ORIGIN_SERVICE: Final = "service"
+ORIGIN_RESTORE: Final = "restore"
+ORIGINS: Final = [ORIGIN_ALARM, ORIGIN_MANUAL, ORIGIN_SERVICE, ORIGIN_RESTORE]
+# Only in events: the window ended, or a setting moved it.
+ORIGIN_SCHEDULE: Final = "schedule"
 
 # Why the learning scope left out an indoor light
 EXCLUDED_DISABLED: Final = "disabled"
@@ -116,12 +138,16 @@ OWN_CONTEXT_MAXLEN: Final = 1000
 # Learning gate
 REASON_SIMULATION: Final = "simulation_enabled"
 REASON_ALARM: Final = "alarm_armed_away"
+# Only with alarm control on and armed_vacation among its activating states.
+REASON_ALARM_VACATION: Final = "alarm_armed_vacation"
 REASON_AWAY: Final = "nobody_home"
 REASON_PAUSED: Final = "paused"
 REASON_MARGIN: Final = "return_margin"
 # Simulation turned on with someone at home: a pause, not an absence.
 REASON_SIMULATION_TEST: Final = "simulation_test"
-ABSENCE_REASONS: Final = frozenset({REASON_SIMULATION, REASON_ALARM, REASON_AWAY})
+ABSENCE_REASONS: Final = frozenset(
+    {REASON_SIMULATION, REASON_ALARM, REASON_ALARM_VACATION, REASON_AWAY}
+)
 
 LONG_ABSENCE: Final = timedelta(hours=48)
 COMMIT_INTERVAL: Final = timedelta(minutes=15)

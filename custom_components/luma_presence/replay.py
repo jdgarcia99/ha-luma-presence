@@ -35,6 +35,7 @@ from .const import (
     MODE_REPLAY,
     OWNER_SIMULATION,
     REASON_ALARM,
+    REASON_ALARM_VACATION,
     REASON_AWAY,
     REPLAY_MIN_COVERAGE,
     REPLAY_MIN_GAP_S,
@@ -62,7 +63,7 @@ DAY_S = 24 * 3600
 
 AreaResolver = Callable[[str], str | None]
 # Learning gate reasons that mean the house is really empty.
-REAL_ABSENCE_REASONS = frozenset({REASON_ALARM, REASON_AWAY})
+REAL_ABSENCE_REASONS = frozenset({REASON_ALARM, REASON_ALARM_VACATION, REASON_AWAY})
 
 
 # ----------------------------------------------------------------------

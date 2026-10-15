@@ -54,12 +54,16 @@
         "data": {
           "persons": "Personas",
           "alarm_entity": "Panel de alarma",
+          "alarm_activate_states": "Estados de la alarma que activan la simulación",
+          "alarm_control": "Controlar la simulación con la alarma",
           "margin_before_hours": "Margen de aprendizaje antes de una ausencia",
           "margin_after_hours": "Margen de aprendizaje tras el regreso"
         },
         "data_description": {
           "persons": "Si ninguna de estas personas está en casa, la casa se considera vacía y el aprendizaje se pausa.",
           "alarm_entity": "El aprendizaje se pausa mientras esta alarma esté armada en modo ausente.",
+          "alarm_activate_states": "Armada ausente y armada vacaciones de forma predeterminada. Otros estados, como pendiente o disparada, nunca cambian la simulación.",
+          "alarm_control": "Armar la alarma en uno de los estados de abajo enciende la simulación; desarmarla la apaga y aplica \"Luces al detener\". Si apagas la simulación a mano con la alarma armada, se respeta hasta el siguiente armado. Tus propias automatizaciones de armado y desarmado que hagan lo mismo siguen funcionando.",
           "margin_before_hours": "Horas de actividad que se descartan justo antes de detectar una ausencia.",
           "margin_after_hours": "Horas que el aprendizaje sigue pausado después de volver."
         }
@@ -68,7 +72,9 @@
     "error": {
       "no_lights": "Selecciona al menos una luz.",
       "facade_not_subset": "Las luces delanteras y traseras también deben ser luces de simulación.",
-      "facade_overlap": "Una luz no puede ser delantera y trasera a la vez."
+      "facade_overlap": "Una luz no puede ser delantera y trasera a la vez.",
+      "alarm_required": "Selecciona el panel de alarma para controlar la simulación con él.",
+      "activate_states_required": "Selecciona al menos un estado de la alarma."
     }
   },
   "options": {
@@ -137,12 +143,16 @@
         "data": {
           "persons": "Personas",
           "alarm_entity": "Panel de alarma",
+          "alarm_activate_states": "Estados de la alarma que activan la simulación",
+          "alarm_control": "Controlar la simulación con la alarma",
           "margin_before_hours": "Margen de aprendizaje antes de una ausencia",
           "margin_after_hours": "Margen de aprendizaje tras el regreso"
         },
         "data_description": {
           "persons": "Si ninguna de estas personas está en casa, la casa se considera vacía y el aprendizaje se pausa.",
           "alarm_entity": "El aprendizaje se pausa mientras esta alarma esté armada en modo ausente.",
+          "alarm_activate_states": "Armada ausente y armada vacaciones de forma predeterminada. Otros estados, como pendiente o disparada, nunca cambian la simulación.",
+          "alarm_control": "Armar la alarma en uno de los estados de abajo enciende la simulación; desarmarla la apaga y aplica \"Luces al detener\". Si apagas la simulación a mano con la alarma armada, se respeta hasta el siguiente armado. Tus propias automatizaciones de armado y desarmado que hagan lo mismo siguen funcionando.",
           "margin_before_hours": "Horas de actividad que se descartan justo antes de detectar una ausencia.",
           "margin_after_hours": "Horas que el aprendizaje sigue pausado después de volver."
         }
@@ -177,7 +187,9 @@
     "error": {
       "no_lights": "Selecciona al menos una luz.",
       "facade_not_subset": "Las luces delanteras y traseras también deben ser luces de simulación.",
-      "facade_overlap": "Una luz no puede ser delantera y trasera a la vez."
+      "facade_overlap": "Una luz no puede ser delantera y trasera a la vez.",
+      "alarm_required": "Selecciona el panel de alarma para controlar la simulación con él.",
+      "activate_states_required": "Selecciona al menos un estado de la alarma."
     }
   },
   "config_subentries": {
@@ -232,7 +244,24 @@
     },
     "switch": {
       "simulation": {
-        "name": "Simulación"
+        "name": "Simulación",
+        "state_attributes": {
+          "owned_lights": {
+            "name": "Luces propias"
+          },
+          "activated_by": {
+            "name": "Activada por",
+            "state": {
+              "alarm": "Alarma",
+              "manual": "Manual",
+              "service": "Servicio",
+              "restore": "Restaurada tras un reinicio"
+            }
+          },
+          "activated_at": {
+            "name": "Activada a las"
+          }
+        }
       },
       "late_arrival": {
         "name": "Llegada tardía"
@@ -336,7 +365,8 @@
               "alarm_armed_away": "Alarma armada en ausente",
               "nobody_home": "Nadie en casa",
               "paused": "Pausado manualmente",
-              "return_margin": "Margen tras el regreso"
+              "return_margin": "Margen tras el regreso",
+              "alarm_armed_vacation": "Alarma armada en vacaciones"
             }
           }
         }
@@ -414,6 +444,15 @@
         "simulation": "luz de simulación",
         "route": "recorrido",
         "replay": "Replay"
+      }
+    },
+    "alarm_state": {
+      "options": {
+        "armed_away": "Armada ausente",
+        "armed_vacation": "Armada vacaciones",
+        "armed_home": "Armada en casa",
+        "armed_night": "Armada noche",
+        "armed_custom_bypass": "Armada con exclusiones personalizadas"
       }
     }
   },
