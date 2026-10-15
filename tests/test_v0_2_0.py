@@ -101,7 +101,10 @@ async def house(hass: HomeAssistant) -> dict[str, str]:
     other.add_to_hass(hass)
 
     def light(unique_id: str, area_id: str | None = None, **kwargs: Any) -> str:
-        entry = entities.async_get_or_create("light", "test", unique_id, **kwargs)
+        # A device entity needs a name of its own to have an area of its own.
+        entry = entities.async_get_or_create(
+            "light", "test", unique_id, original_name=unique_id, **kwargs
+        )
         if area_id:
             entities.async_update_entity(entry.entity_id, area_id=area_id)
         return entry.entity_id
@@ -427,5 +430,7 @@ async def test_light_sensors_and_device(hass: HomeAssistant, fake_lights) -> Non
         assert registry.async_get(entity_id).entity_category is EntityCategory.DIAGNOSTIC
     assert hass.states.get("number.luma_presence_min_rear_lights").state == "0"
 
-    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, entry.entry_id)})
+    device = dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, entry.entry_id), entry.entry_id
+    )
     assert device.sw_version == "0.2.0"
