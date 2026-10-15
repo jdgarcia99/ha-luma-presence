@@ -430,7 +430,11 @@ async def test_light_sensors_and_device(hass: HomeAssistant, fake_lights) -> Non
         assert registry.async_get(entity_id).entity_category is EntityCategory.DIAGNOSTIC
     assert hass.states.get("number.luma_presence_min_rear_lights").state == "0"
 
-    device = dr.async_get(hass).async_get_device_by_identifier(
-        (DOMAIN, entry.entry_id), entry.entry_id
-    )
+    devices = dr.async_get(hass)
+    identifier = (DOMAIN, entry.entry_id)
+    # async_get_device is deprecated since Home Assistant 2026.10.
+    if hasattr(devices, "async_get_device_by_identifier"):
+        device = devices.async_get_device_by_identifier(identifier, entry.entry_id)
+    else:
+        device = devices.async_get_device(identifiers={identifier})
     assert device.sw_version == "0.2.0"
