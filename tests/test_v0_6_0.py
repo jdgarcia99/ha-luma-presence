@@ -415,9 +415,15 @@ async def test_morning_report(
         options={CONF_REPORT_NOTIFY: "notify.test_phone"},
     )
     reports = async_capture_events(hass, EVENT_NIGHT_REPORT)
-    await _until(lambda: _is_on(hass, "light.bedroom"))
+    controller = entry.runtime_data.controller
+    # Wait until the switch is recorded, not only until the light is on.
+    await _until(
+        lambda: (controller.last_action or {}).get("entity_id") == "light.bedroom"
+    )
 
     sunrise = get_astral_event_next(hass, SUN_EVENT_SUNRISE, dt_util.utcnow())
+    await _move(hass, freezer, _local(TODAY + timedelta(days=1), 1))  # window ended
+    assert not reports
     await _move(hass, freezer, sunrise + timedelta(seconds=5))
     await hass.async_block_till_done()
     assert len(reports) == 1
@@ -426,6 +432,8 @@ async def test_morning_report(
     assert report["mode"] == "sun"
     assert report["night"] == TODAY.isoformat()
     assert report["lights_switched"] >= 1
+    assert "light.bedroom" in report["lights"]
+    assert report["switches"] >= 2  # on, then off at the window end
     assert report["failures"] == 0
     assert len(sent) == 1
     assert "sun" in sent[0].data["message"]
