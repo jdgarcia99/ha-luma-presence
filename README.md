@@ -49,10 +49,10 @@ gantt
     Simulation window (sunset → end)   :active, w, 2026-10-16 19:20, 2026-10-17 02:00
     section Front
     Lucía's room                         :f1, 2026-10-16 19:35, 2026-10-16 22:50
-    Mario Jr's floor lamp              :f2, 2026-10-16 20:10, 2026-10-17 00:30
+    Pablo's floor lamp              :f2, 2026-10-16 20:10, 2026-10-17 00:30
     section Rear
     Kitchen                             :r1, 2026-10-16 19:40, 2026-10-16 21:15
-    Elena's lamp                      :r2, 2026-10-16 21:05, 2026-10-16 23:40
+    Clara's lamp                      :r2, 2026-10-16 21:05, 2026-10-16 23:40
     section Night walks
     Suite → bathroom                    :n1, 2026-10-17 01:20, 4m
     Lucía → bathroom                     :n2, 2026-10-17 02:55, 3m
