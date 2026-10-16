@@ -82,9 +82,11 @@ def _ai_task(
 
 
 def _keys() -> RoomKeys:
+    rooms = ["salon", "dormitorio_lucia"]
     return build_keys(
-        ["salon", "dormitorio_lucia"],
+        rooms,
         {"salon": "Salón", "dormitorio_lucia": "Dormitorio Lucía"},
+        order=rooms.index,
     )
 
 
