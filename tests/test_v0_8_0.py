@@ -757,7 +757,7 @@ async def test_deterrence_trigger_subentry(
     )
     result = await manager.async_configure(
         result["flow_id"],
-        {CONF_TRIGGER_ENTITY: PORCH, CONF_FACADE: "front", CONF_EVENT_TYPES: ["x"]},
+        {CONF_TRIGGER_ENTITY: PORCH, CONF_FACADE: "front"},
     )
     assert result["type"] == "create_entry"
     assert result["data"][CONF_EVENT_TYPES] == []
