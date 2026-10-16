@@ -68,6 +68,20 @@ def from_night_seconds(night: date, seconds: float) -> datetime:
     return dt_util.as_utc(naive.replace(tzinfo=dt_util.get_default_time_zone()))
 
 
+WEEKDAY = "weekday"
+WEEKEND = "weekend"
+DAY_TYPES = (WEEKDAY, WEEKEND)
+
+
+def day_type(night: date) -> str:
+    """Day type of a night, shared by Replay and Dream.
+
+    Weekday nights start Sunday to Thursday (a working day follows);
+    weekend nights start Friday and Saturday.
+    """
+    return WEEKEND if night.weekday() in (4, 5) else WEEKDAY
+
+
 def clock_text(seconds: float) -> str:
     """Local clock time "HH:MM" of a night clock value."""
     minutes = int((NOON_S + seconds) // 60) % (24 * 60)

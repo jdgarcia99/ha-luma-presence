@@ -81,7 +81,7 @@ def _choose(days: dict, previous: date | None = None, min_events: int = 2):
 def test_source_preference() -> None:
     """Same weekday, then same day type, then the most recent night."""
     days = _days(date(2026, 9, 20), TONIGHT)
-    for night in (date(2026, 10, 1), date(2026, 10, 8), date(2026, 10, 11),
+    for night in (date(2026, 10, 1), date(2026, 10, 8), date(2026, 10, 10),
                   date(2026, 10, 13), date(2026, 10, 14)):
         _add_night(days, night)
 
@@ -95,15 +95,15 @@ def test_source_preference() -> None:
     choice = _choose(days)
     assert (choice.source, choice.reason) == (date(2026, 10, 1), REPLAY_SAME_WEEKDAY)
 
-    # Then the most recent night of the same type (Monday-Thursday).
+    # Then the most recent night of the same type (weekday: Sunday-Thursday).
     days["2026-10-01"]["events"] = []
     choice = _choose(days)
     assert (choice.source, choice.reason) == (date(2026, 10, 14), REPLAY_SAME_DAY_TYPE)
 
-    # Only a weekend night left: the most recent eligible night.
+    # Only a weekend night (Saturday) left: the most recent eligible night.
     days["2026-10-13"]["events"] = days["2026-10-14"]["events"] = []
     choice = _choose(days)
-    assert (choice.source, choice.reason) == (date(2026, 10, 11), REPLAY_MOST_RECENT)
+    assert (choice.source, choice.reason) == (date(2026, 10, 10), REPLAY_MOST_RECENT)
 
 
 def test_source_not_twice_in_a_row() -> None:

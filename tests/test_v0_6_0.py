@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 import random
+import time
 from typing import Any
 
 from freezegun.api import FrozenDateTimeFactory
@@ -33,9 +34,11 @@ from custom_components.luma_presence.const import (
 )
 from custom_components.luma_presence.dream import (
     Candidate,
+    _weighted_ks,
     choose_candidate,
     generate_night,
     jaccard,
+    make_candidates,
     room_slots,
     score_night,
 )
@@ -186,6 +189,49 @@ def test_novelty_and_choice() -> None:
     assert (chosen, reason) == (copy, DREAM_LOW_SCORE)
 
 
+def test_weighted_ks_matches_its_definition() -> None:
+    """The linear sweep gives the same statistic as the brute-force definition."""
+
+    def brute(a, b):
+        if not a or not b:
+            return 1.0 if (a or b) else 0.0
+        ta, tb = sum(w for _, w in a), sum(w for _, w in b)
+        return max(
+            abs(sum(w for v, w in a if v <= p) / ta - sum(w for v, w in b if v <= p) / tb)
+            for p in {v for v, _ in a} | {v for v, _ in b}
+        )
+
+    rng = random.Random(1)
+    for _ in range(200):
+        a = [(rng.randint(1, 60), rng.random()) for _ in range(rng.randint(0, 30))]
+        b = [(rng.randint(1, 60), rng.random()) for _ in range(rng.randint(0, 30))]
+        assert _weighted_ks(a, b) == pytest.approx(brute(a, b), abs=1e-12)
+
+
+def test_planning_is_fast() -> None:
+    """120 nights, 15 rooms, 20 candidates: well under 2 seconds."""
+    rng = random.Random(7)
+    nights = []
+    for age in range(1, 121):
+        rooms = {}
+        for k in range(15):
+            spans, minute = [], rng.randint(0, 120)
+            while minute < 700:
+                length = rng.randint(5, 90)
+                spans.append((minute, min(minute + length, 720)))
+                minute += length + rng.randint(10, 200)
+            rooms[f"room{k}"] = spans
+        nights.append(_night(TODAY - timedelta(days=age), rooms))
+
+    started = time.perf_counter()
+    model = build_day_type(nights, TODAY, 21)
+    candidates = make_candidates(model, 85, 390, OFFSET, 123, 20, [])
+    elapsed = time.perf_counter() - started
+    assert len(model.nights) == 120 and len(model.rooms) == 15
+    assert len(candidates) == 20
+    assert elapsed < 2, f"model and 20 candidates took {elapsed:.2f} s"
+
+
 # ----------------------------------------------------------------------
 # Integration
 # ----------------------------------------------------------------------
@@ -255,7 +301,7 @@ async def _setup(
     runtime = entry.runtime_data
     if learned is not None:
         runtime.learning._days = learned
-        runtime.dream.rebuild()
+        await runtime.dream.async_rebuild()
     settings = runtime.settings
     settings.delayed_start = settings.delayed_end = False
     settings.dream_min_days = 7

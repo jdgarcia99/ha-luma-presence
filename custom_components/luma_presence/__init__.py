@@ -193,7 +193,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async def _get_heatmap(call: ServiceCall) -> ServiceResponse:
         runtime = _runtimes(hass, call)[0]
         assert runtime.dream is not None
-        return runtime.dream.heatmap(call.data[ATTR_DAY_TYPE])
+        return await runtime.dream.async_heatmap(call.data[ATTR_DAY_TYPE])
 
     hass.services.async_register(
         DOMAIN,

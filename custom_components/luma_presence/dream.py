@@ -62,7 +62,6 @@ from .model import (
     SLOT_MIN,
     SLOTS,
     DayTypeModel,
-    NightRooms,
     RoomModel,
     RoomStats,
     build_model,
@@ -83,7 +82,7 @@ from .plan import (
     night_of,
     to_night_seconds,
 )
-from .replay import area_targets, night_data
+from .replay import NightData, area_targets, night_data
 from .scope import entity_area_id, resolve_learning_entities
 
 _LOGGER = logging.getLogger(__name__)
@@ -165,21 +164,42 @@ def _slots(start: int, end: int) -> range:
 
 
 def _weighted_ks(a: list[tuple[float, float]], b: list[tuple[float, float]]) -> float:
-    """Kolmogorov-Smirnov statistic between two weighted samples."""
+    """Kolmogorov-Smirnov statistic between two weighted samples.
+
+    One sweep over both sorted samples: O(n log n) for the sort, then linear.
+    """
     if not a or not b:
         return 1.0 if (a or b) else 0.0
+    a, b = sorted(a), sorted(b)
     total_a = sum(w for _, w in a)
     total_b = sum(w for _, w in b)
-    worst = 0.0
-    for point in sorted({v for v, _ in a} | {v for v, _ in b}):
-        cdf_a = sum(w for v, w in a if v <= point) / total_a
-        cdf_b = sum(w for v, w in b if v <= point) / total_b
-        worst = max(worst, abs(cdf_a - cdf_b))
+    i = j = 0
+    cum_a = cum_b = worst = 0.0
+    while i < len(a) or j < len(b):
+        point = min(
+            a[i][0] if i < len(a) else math.inf, b[j][0] if j < len(b) else math.inf
+        )
+        while i < len(a) and a[i][0] == point:
+            cum_a += a[i][1]
+            i += 1
+        while j < len(b) and b[j][0] == point:
+            cum_b += b[j][1]
+            j += 1
+        worst = max(worst, abs(cum_a / total_a - cum_b / total_b))
     return worst
 
 
-def score_night(model: DayTypeModel, spans: Spans, start: int, end: int) -> tuple[float, dict[str, float]]:
-    """Realism score (0-100) of a night and its four parts (0-1)."""
+def score_night(
+    model: DayTypeModel,
+    spans: Spans,
+    start: int,
+    end: int,
+    learned: list[tuple[float, float]] | None = None,
+) -> tuple[float, dict[str, float]]:
+    """Realism score (0-100) of a night and its four parts (0-1).
+
+    `learned` (all learned durations) can be passed to reuse it across candidates.
+    """
     slots = _slots(start, end)
     rooms = set(model.rooms) | set(spans)
 
@@ -196,7 +216,8 @@ def score_night(model: DayTypeModel, spans: Spans, start: int, end: int) -> tupl
             total += expected + actual
     occupancy = 1 - distance / total if total else 1.0
 
-    learned = [item for stats in model.rooms.values() for item in stats.all_durations()]
+    if learned is None:
+        learned = learned_durations(model)
     generated = [(float(e - s), 1.0) for items in spans.values() for s, e in items]
     durations = 1 - _weighted_ks(generated, learned)
 
@@ -232,6 +253,11 @@ def score_night(model: DayTypeModel, spans: Spans, start: int, end: int) -> tupl
     return round(score, 1), parts
 
 
+def learned_durations(model: DayTypeModel) -> list[tuple[float, float]]:
+    """Every learned visit duration of a day type, with its weight."""
+    return [item for stats in model.rooms.values() for item in stats.all_durations()]
+
+
 def room_slots(spans: Spans) -> set[tuple[str, int]]:
     """Occupied (room, slot) pairs of a night."""
     return {
@@ -256,6 +282,64 @@ class Candidate:
     spans: Spans
     score: float
     similarity: float
+
+
+def period_function(offset: float) -> Callable[[int], str]:
+    """Coarse period of an axis minute, for a night whose axis starts at `offset`."""
+
+    def period_at(minute: int) -> str:
+        return period_of((offset / 60 + minute + 12 * 60) % (24 * 60))
+
+    return period_at
+
+
+def make_candidates(
+    model: DayTypeModel,
+    start: int,
+    end: int,
+    offset: float,
+    base_seed: int,
+    count: int,
+    history: list[set[tuple[str, int]]],
+) -> list[Candidate]:
+    """Generate, score and compare `count` candidates (pure: runs in an executor)."""
+    period_at = period_function(offset)
+    learned = learned_durations(model)
+    candidates: list[Candidate] = []
+    for index in range(max(count, 1)):
+        seed = (base_seed + index) % 2**32
+        spans = generate_night(model, start, end, seed, period_at)
+        score, _parts = score_night(model, spans, start, end, learned)
+        slots = room_slots(spans)
+        similarity = max((jaccard(slots, old) for old in history), default=0.0)
+        candidates.append(Candidate(seed, spans, score, similarity))
+    return candidates
+
+
+def dreamed_hours(
+    model: DayTypeModel, rooms: list[str], offset: float, length: int
+) -> list[list[float]]:
+    """Average occupancy per room and hour of 7 dreamed nights (pure)."""
+    period_at = period_function(offset)
+    dreamed = [[0.0] * 24 for _ in rooms]
+    for index in range(HEATMAP_NIGHTS):
+        spans = generate_night(model, 0, length, index, period_at)
+        for row, room in enumerate(rooms):
+            for hour in range(24):
+                lo = (hour * 3600 - offset) / 60
+                dreamed[row][hour] += overlap(spans.get(room, []), lo, lo + 60) / 60
+    return [[round(v / HEATMAP_NIGHTS, 3) for v in row] for row in dreamed]
+
+
+def model_from_nights(
+    nights: list[tuple[NightData, float, float]],
+    today: date,
+    half_life: float,
+    built_at: datetime,
+) -> RoomModel:
+    """Turn learned nights (with their sun times) into the model (pure)."""
+    rooms = [night_rooms(data, sunset, sunrise, room_key) for data, sunset, sunrise in nights]
+    return build_model([r for r in rooms if r is not None], today, half_life, built_at)
 
 
 def choose_candidate(
@@ -298,6 +382,7 @@ class DreamEngine:
         self.preview_status: dict[str, Any] = {}
         self._saved: dict[str, Any] = {}
         self._unsub: CALLBACK_TYPE | None = None
+        self._rebuilds = 0  # only the latest rebuild may set the model
         self._store: Store[dict[str, Any]] = Store(
             hass, STORE_VERSION, f"{DOMAIN}.{entry_id}.dream"
         )
@@ -310,7 +395,7 @@ class DreamEngine:
     @callback
     def async_start(self) -> None:
         """Build the model now and again every day at 12:00."""
-        self.rebuild()
+        self._schedule_rebuild()
         self._unsub = async_track_time_change(
             self.hass, self._handle_noon, hour=12, minute=0, second=0
         )
@@ -324,7 +409,13 @@ class DreamEngine:
 
     @callback
     def _handle_noon(self, _now: datetime) -> None:
-        self.rebuild()
+        self._schedule_rebuild()
+
+    @callback
+    def _schedule_rebuild(self) -> None:
+        self.hass.async_create_background_task(
+            self.async_rebuild(), f"{DOMAIN}_dream_model_{self._entry_id}"
+        )
 
     # ------------------------------------------------------------------
     # Model
@@ -341,9 +432,14 @@ class DreamEngine:
             to_night_seconds(dt_util.as_local(sunrise), night),
         )
 
-    @callback
-    def rebuild(self) -> RoomModel:
-        """Rebuild the room model from the learned days."""
+    async def async_rebuild(self) -> RoomModel:
+        """Rebuild the room model from the learned days.
+
+        Registries and sun times are read here; the model itself is built in
+        an executor, as it is pure computation.
+        """
+        self._rebuilds += 1
+        rebuild = self._rebuilds
         days = self._learning.days
         areas: dict[str, str | None] = {}
 
@@ -353,20 +449,25 @@ class DreamEngine:
             return areas[entity_id]
 
         today = dt_util.now().date()
-        nights: list[NightRooms] = []
-        for key in days:
+        nights: list[tuple[NightData, float, float]] = []
+        for key in list(days):
             night = date.fromisoformat(key)
             if night >= today or (data := night_data(days, night, area_of)) is None:
                 continue
             if (sun := self._sun(night)) is None:
                 continue
-            if (rooms := night_rooms(data, *sun, room_key)) is not None:
-                nights.append(rooms)
-        self.model = build_model(
-            nights, today, self._settings.dream_half_life, dt_util.utcnow()
+            nights.append((data, *sun))
+        model = await self.hass.async_add_executor_job(
+            model_from_nights,
+            nights,
+            today,
+            self._settings.dream_half_life,
+            dt_util.utcnow(),
         )
-        self._notify()
-        return self.model
+        if rebuild == self._rebuilds:  # a newer rebuild wins over an older one
+            self.model = model
+            self._notify()
+        return model
 
     # ------------------------------------------------------------------
     # Planning
@@ -391,7 +492,7 @@ class DreamEngine:
             self._notify()
             return plan
 
-        model = self.model or self.rebuild()
+        model = self.model or await self.async_rebuild()
         day_model = model.day_types.get(kind)
         nights = model.valid_nights(kind)
         if day_model is None or nights < self._settings.dream_min_days:
@@ -410,20 +511,20 @@ class DreamEngine:
             self._set_status(None, DREAM_NO_WINDOW, kind, preview=preview)
             return None
 
-        def period_at(minute: int) -> str:
-            return period_of((offset / 60 + minute + 12 * 60) % (24 * 60))
-
-        history = [set(map(tuple, item["slots"])) for item in self._saved.get("history", [])]
-        base_seed = random.getrandbits(32)
-        candidates: list[Candidate] = []
-        count = int(self._config.get(CONF_DREAM_CANDIDATES, DEFAULT_DREAM_CANDIDATES))
-        for index in range(max(count, 1)):
-            seed = (base_seed + index) % 2**32
-            spans = generate_night(day_model, start, end, seed, period_at)
-            score, _parts = score_night(day_model, spans, start, end)
-            slots = room_slots(spans)
-            similarity = max((jaccard(slots, old) for old in history), default=0.0)
-            candidates.append(Candidate(seed, spans, score, similarity))
+        history = [
+            {(room, slot) for room, slot in item["slots"]}
+            for item in self._saved.get("history", [])
+        ]
+        candidates = await self.hass.async_add_executor_job(
+            make_candidates,
+            day_model,
+            start,
+            end,
+            offset,
+            random.getrandbits(32),
+            int(self._config.get(CONF_DREAM_CANDIDATES, DEFAULT_DREAM_CANDIDATES)),
+            history,
+        )
         chosen, reason = choose_candidate(
             candidates,
             self._settings.dream_min_score,
@@ -580,9 +681,9 @@ class DreamEngine:
     # ------------------------------------------------------------------
     # Heatmap
     # ------------------------------------------------------------------
-    def heatmap(self, kind: str) -> dict[str, Any]:
+    async def async_heatmap(self, kind: str) -> dict[str, Any]:
         """Real vs dreamed average occupancy per room and hour (from 12:00)."""
-        model = self.model or self.rebuild()
+        model = self.model or await self.async_rebuild()
         day_model = model.day_types.get(kind)
         hours = [(12 + h) % 24 for h in range(24)]
         if day_model is None or not day_model.rooms:
@@ -595,17 +696,9 @@ class DreamEngine:
         if (sun := self._sun(night)) is not None:
             offset = sun[0] - 60 * 60
             length = min(int((sun[1] - offset) // 60), SLOTS * SLOT_MIN)
-
-            def period_at(minute: int) -> str:
-                return period_of((offset / 60 + minute + 12 * 60) % (24 * 60))
-
-            for index in range(HEATMAP_NIGHTS):
-                spans = generate_night(day_model, 0, length, index, period_at)
-                for row, room in enumerate(rooms):
-                    for hour in range(24):
-                        lo = (hour * 3600 - offset) / 60
-                        dreamed[row][hour] += overlap(spans.get(room, []), lo, lo + 60) / 60
-            dreamed = [[round(v / HEATMAP_NIGHTS, 3) for v in row] for row in dreamed]
+            dreamed = await self.hass.async_add_executor_job(
+                dreamed_hours, day_model, rooms, offset, length
+            )
         return {
             "day_type": kind,
             "hours": hours,

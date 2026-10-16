@@ -154,7 +154,7 @@ class LumaRuntime:
         if key in SEQUENCE_SETTINGS:
             await self.sequences.async_settings_changed(key)
         if key == "dream_half_life" and self.dream is not None:
-            self.dream.rebuild()
+            await self.dream.async_rebuild()
         async_dispatcher_send(self.hass, signal_update(self.entry_id))
 
 

@@ -54,6 +54,7 @@ from .plan import (
     Timeline,
     Transition,
     apply_jitter,
+    day_type,
     night_of,
     to_night_seconds,
 )
@@ -67,11 +68,6 @@ AreaResolver = Callable[[str], str | None]
 def _name(hass: HomeAssistant, entity_id: str) -> str:
     state = hass.states.get(entity_id)
     return state.name if state is not None else entity_id
-
-
-def is_weekend_night(night: date) -> bool:
-    """Friday, Saturday and Sunday nights are weekend nights."""
-    return night.weekday() >= 4
 
 
 # ----------------------------------------------------------------------
@@ -211,7 +207,7 @@ def choose_source(
         ),
         (
             REPLAY_SAME_DAY_TYPE,
-            lambda night: is_weekend_night(night) == is_weekend_night(tonight)
+            lambda night: day_type(night) == day_type(tonight)
             and (tonight - night).days <= REPLAY_SAME_DAY_TYPE_DAYS,
         ),
         (REPLAY_MOST_RECENT, lambda night: True),

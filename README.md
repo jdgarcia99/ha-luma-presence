@@ -137,7 +137,7 @@ Replay uses the same window as Sun mode: from sunset (plus the random start dela
 A night runs from 12:00 to 12:00 the next day, so it spans two learned days, and events are matched by clock time: a light switched on at 21:14 on the source night is switched on at about 21:14 tonight. At each window start Replay picks the source night, preferring:
 
 1. the same weekday within the last 14 days;
-2. the same type of night (Monday–Thursday, or Friday–Sunday) within the last 28 days;
+2. the same type of night within the last 28 days: weekday nights start Sunday to Thursday (a working day follows), weekend nights start Friday and Saturday — the same day types as Dream;
 3. the most recent eligible night.
 
 A night is eligible when LumaPresence observed at least 80 % of tonight's window on it, it has at least *Minimum events for Replay* events (4 by default) inside the window, and it was not last night's source (unless it is the only eligible one). Among equally good nights, the most recent wins.

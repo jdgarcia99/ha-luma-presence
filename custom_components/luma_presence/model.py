@@ -23,7 +23,7 @@ from statistics import median
 from homeassistant.const import STATE_ON
 
 from .const import REPLAY_MIN_COVERAGE
-from .plan import DAY_S, NOON_S
+from .plan import DAY_S, DAY_TYPES, NOON_S, WEEKDAY, WEEKEND, day_type  # noqa: F401  (day types are re-exported for Dream)
 from .replay import NightData
 
 SLOT_MIN = 15
@@ -36,20 +36,11 @@ ATYPICAL_WEIGHT = 0.3
 ATYPICAL_MIN_NIGHTS = 5
 CONCURRENCY_PERCENTILE = 0.95
 
-WEEKDAY = "weekday"
-WEEKEND = "weekend"
-DAY_TYPES = (WEEKDAY, WEEKEND)
-
 EVENING = "evening"
 LATE_NIGHT = "late_night"
 SMALL_HOURS = "small_hours"
 
 Interval = tuple[float, float]
-
-
-def day_type(night: date) -> str:
-    """Friday and Saturday nights are weekend nights."""
-    return WEEKEND if night.weekday() in (4, 5) else WEEKDAY
 
 
 def period_of(clock_minute: float) -> str:
