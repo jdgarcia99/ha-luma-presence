@@ -9,6 +9,7 @@ jobs:
   tests:
     name: Pytest and Ruff
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -19,4 +20,4 @@ jobs:
       - name: Ruff
         run: ruff check .
       - name: Pytest
-        run: pytest -v
+        run: pytest -v --timeout=60

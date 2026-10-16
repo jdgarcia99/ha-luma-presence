@@ -87,6 +87,9 @@ Setup walks through the same sections that the integration's **Configure** butto
 | People and alarm | People, alarm panel, [alarm control](#alarm-control), and the learning margins: hours discarded before an absence, and hours learning stays paused after returning |
 | Context | [Darkness-based start, wake-up, daylight guard, workdays and holidays, weather](#context) (optional; only the Replay/Dream wake-up is on by default) |
 | Night sequences | Delay between the steps of a route and time spent at its destination (see [Night sequences](#night-sequences)) |
+| Covers | [Blinds, shutters and curtains](#covers) to open and close during an absence (off unless you choose covers) |
+| Ambience | [Media players](#ambience) that play in occupied rooms (off unless you choose players) |
+| Deterrence | [React to someone outside](#deterrence) at night during an absence (off by default; triggers are added from the integration page) |
 | Monitoring | Minutes a light may stay unavailable before an alert (see [Unavailable lights](#unavailable-lights)), where to send the morning report, and how long to wait for a light to [obey](#lights-that-do-not-obey) |
 
 ### Facades
@@ -253,6 +256,7 @@ To try a route at home, press **Test sequence** (`button.luma_presence_test_sequ
 - Diagnostic sensors, to see from the device page which lights take part:
   - `sensor.luma_presence_simulation_lights`: number of simulation lights, with the `front`, `rear` and `interior` lists as attributes.
   - `sensor.luma_presence_learning_lights`: number of learned entities, with the `entities` list and the `auto_excluded` mapping as attributes. `auto_excluded` gives, for each indoor light left out automatically, the reason: `disabled`, `hidden`, `entity_category` or `indicator_led`.
+- Deterrence: `sensor.luma_presence_last_deterrence` and `button.luma_presence_test_deterrence` (see [Deterrence](#deterrence)).
 - Night sequences: `switch.luma_presence_sequences`, `time.luma_presence_sequence_start_time`, `number.luma_presence_sequence_min_interval`, `number.luma_presence_sequence_max_interval`, `binary_sensor.luma_presence_sequence_running` (with the `route` and `step` attributes), `sensor.luma_presence_next_sequence` (with the configured `routes` as an attribute) and `button.luma_presence_test_sequence`.
 
 The simulation always ends at sunrise at the latest. Scheduled ends turn the lights off gradually.
@@ -303,7 +307,7 @@ LumaPresence can wake the house up before dawn, as people getting ready do:
 
 ### Daylight guard
 
-With an illuminance sensor, a daylight guard is always active, in every mode: as soon as it has been light for 5 minutes, it stops the simulation, Replay, Dream and night routes, switches off the lights LumaPresence turned on gradually within 3 minutes, and no light is switched on while it is day (the *Test sequence* button and `run_sequence` refuse too). Without a sensor, the windows already end at sunrise.
+With an illuminance sensor, a daylight guard is always active, in every mode: as soon as it has been light for 5 minutes, it stops the simulation, Replay, Dream and night routes, switches off the lights LumaPresence turned on gradually within 3 minutes, and no light is switched on while it is day (the *Test sequence* and *Test deterrence* buttons and `run_sequence` refuse too). It also ends audio sessions and deterrence reactions (their lights go off within 3 minutes like the rest). It never blocks [covers](#covers): opening them by day is the point. Without a sensor, the windows already end at sunrise.
 
 ### Workdays and holidays
 
@@ -318,6 +322,54 @@ With a *Weather* entity, a night is a bad-weather night when, at the window star
 - **Dream** boosts the start rate of the two rooms busiest in the evening by *Bad weather boost* (20 % by default) and uses that same boosted model to generate and to score the candidates, so these nights are not rejected as unrealistic (`context` attribute of the realism sensor).
 - **Sun and Time** keep one more light on (never above the maximum).
 - **Replay** plays a real night unchanged.
+
+## Covers
+
+LumaPresence can open blinds, shutters and curtains in the morning and close them at dusk, as people living in the house do (**Configure → Covers**).
+
+- **Never used:** awnings, garage doors, gates and doors. They are not offered in the selector and are rejected if chosen: awnings can be damaged by wind, and doors, garages and gates are a security risk. Allowed: blinds, shutters, curtains, shades, windows and covers without a device class.
+- **Only during a real absence:** the alarm armed away or on vacation, or nobody home — never while you test the simulation with someone at home. Covers move whether or not a light window is running, and the [daylight guard](#daylight-guard) never blocks them.
+- **Schedule** (default): they open at *Open on workdays at* (08:00) or *Open on non-workdays at* (09:30) — workdays as in [Workdays and holidays](#workdays-and-holidays) — but never before sunrise; they close when the evening gets dark (the [darkness decision](#darkness-based-start), or sunset without a sensor), each cover after a random delay of up to *Close up to this long after dark* (20 minutes). *Open to* sets the position for covers that support it.
+- **Learned:** the learning gate also records your own (human) opening and closing of the configured covers, with the same rules as lights. In Replay mode the covers follow the source night (its closing time, and the opening time of the next morning); otherwise each cover's opening and closing times are sampled per day type (median ± spread; workday or not for mornings). While a cover has fewer than 7 observed days it uses the schedule, and the plan says so (`schedule_not_enough_days`).
+- Covers go through the same controller as lights: their moves are LumaPresence's own (never learned), they are verified (with a longer wait, covers take a while to move) and counted in the morning report (`cover_moves`, `covers`). The next moves appear in `sensor.luma_presence_tonight_plan` (`covers`: entity, action, time and source).
+
+## Ambience
+
+- **TV backlight:** nothing to configure. A WLED strip or similar is a light: add it as a simulation light of the living room and it follows the room like any other light (Replay and Dream map it by room).
+- **Audio (optional):** choose media players (each must be in an area) and what they play, one line per player (`media_player.living_room = http://radio.example/stream`), or a single line for all of them. A player plays at *Volume* (0.15) while its room is occupied tonight (a simulation light of that area is on), only while the simulation runs during a real absence, never after *Quiet after* (23:30) and never while it is day. It stops when the room becomes idle, the simulation stops or the daylight guard ends the night, and the previous volume and source are restored. Sessions are counted in the morning report (`ambience_sessions`).
+
+## Deterrence
+
+When someone is detected outside at night while the house is empty, the house reacts like people waking up. **Lights only: never sirens, locks or doors.**
+
+- **Triggers** are added from the integration page (**Add deterrence trigger**): a binary sensor with device class motion, occupancy or presence, or an event entity such as a doorbell; its facade (front or rear); and optionally the lights toward the door, in order (for example the hallway).
+- **When it is active:** with *Deterrence* on (off by default), during a real absence (alarm armed away or vacation, or nobody home) while it is dark: from the evening [darkness decision](#darkness-based-start) (or sunset) until the daylight guard ends the night (or sunrise without a sensor) — **whether or not a simulation window is running**, so the small hours between the end of the evening and the wake-up are covered too.
+- **Reaction:** after 2–6 seconds one light of that facade that is off goes on (one tonight's plan uses around this hour first, otherwise the first in configuration order); after 10–25 seconds the path lights go on in order; they stay on for 3–8 minutes; then they are handed back: if a plan is playing, the lights it wants on stay on for it; in Sun and Time modes the simulation takes over its lights; otherwise LumaPresence switches off what it turned on, gradually. The lights are locked during the reaction, verified, and a light that does not obey is replaced by another of the same facade.
+- **Limits:** each trigger waits *Cooldown per trigger* (10 minutes) before reacting again, and at most *Reactions per night* (6) happen per night.
+- `sensor.luma_presence_last_deterrence` shows when the last reaction started, with `trigger`, `facade`, `lights`, `reactions_tonight` and `active`. `button.luma_presence_test_deterrence` runs the reaction of the first trigger now, at home or not (it refuses while it is day). The morning report counts the reactions (`deterrence_reactions`).
+- Each reaction fires `luma_presence_deterrence` with `trigger`, `facade`, `lights`, `time` and `test`. For example, a notification with a camera snapshot:
+
+```yaml
+automation:
+  - alias: "LumaPresence: someone outside"
+    triggers:
+      - trigger: event
+        event_type: luma_presence_deterrence
+    actions:
+      - action: camera.snapshot
+        target:
+          entity_id: camera.porch
+        data:
+          filename: /config/www/deterrence.jpg
+      - action: notify.mobile_app_my_phone
+        data:
+          title: "Someone at the {{ trigger.event.data.facade }} of the house"
+          message: >
+            {{ trigger.event.data.trigger }} at {{ trigger.event.data.time }}:
+            {{ trigger.event.data.lights | join(', ') }} switched on.
+          data:
+            image: /local/deterrence.jpg
+```
 
 ## Lights that do not obey
 
@@ -359,7 +411,7 @@ The user interface is available in English and Spanish. Contributions for other 
 ## Roadmap
 
 - **Phase 2** (done): night sequences (v0.3.0), Replay mode (v0.4.0) and built-in alarm control (v0.5.0).
-- **Phase 3**: Dream mode core (v0.6.0), context and actuator verification (v0.7.0); then covers, ambience and deterrence, and optional generative AI.
+- **Phase 3**: Dream mode core (v0.6.0), context and actuator verification (v0.7.0), covers, ambience and deterrence (v0.8.0); then optional generative AI.
 
 ## Development
 

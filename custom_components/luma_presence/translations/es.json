@@ -271,7 +271,7 @@
         },
         "data_description": {
           "ambience_players": "Cada reproductor debe estar en un área: suena mientras haya encendida una luz de simulación de esa área.",
-          "ambience_media": "Una línea por reproductor, `media_player.salon = http://radio.example/stream`. Una línea sin reproductor se usa para todos los que no tengan línea propia.",
+          "ambience_media": "Una línea por reproductor, `media_player.salon = <id del contenido>` (por ejemplo, una emisora de radio). Una línea sin reproductor se usa para todos los que no tengan línea propia.",
           "ambience_volume": "Volumen mientras suena (0–1).",
           "ambience_quiet_after": "Sin sonido desde esta hora hasta el mediodía."
         }
