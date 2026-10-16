@@ -271,7 +271,7 @@
         },
         "data_description": {
           "ambience_players": "Each player must be in an area: it plays while a simulation light of that area is on.",
-          "ambience_media": "One line per player, `media_player.living_room = <media id>` (for example a radio stream). A line without a player is used for every player without a line of its own.",
+          "ambience_media": "One line per player, `media_player.living_room = MEDIA_ID` (for example a radio stream). A line without a player is used for every player without a line of its own.",
           "ambience_volume": "Volume while it plays (0–1).",
           "ambience_quiet_after": "No sound from this time until noon."
         }
