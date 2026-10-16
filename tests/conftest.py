@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+import time
+
 import pytest
 
 from homeassistant.const import STATE_OFF
@@ -10,6 +13,30 @@ from homeassistant.setup import async_setup_component
 
 LIGHTS = ["light.salon", "light.hall", "switch.oficina", "light.bedroom"]
 FRONT = ["light.bedroom"]
+
+try:  # wall time, even when the test freezes the clock
+    from freezegun.api import real_monotonic as _monotonic
+except ImportError:  # pragma: no cover
+    _monotonic = time.monotonic
+
+
+async def until(
+    hass: HomeAssistant, predicate: Callable[[], bool], timeout: float = 5.0
+) -> None:
+    """Wait (up to `timeout` seconds of wall time) until `predicate` holds.
+
+    Plans are generated in the executor, so counting event-loop turns is not
+    enough on slow machines: let Home Assistant settle and give the executor
+    real time in between.
+    """
+    deadline = _monotonic() + timeout
+    while not predicate() and _monotonic() < deadline:
+        await hass.async_block_till_done()
+        if predicate():
+            return
+        # A real 10 ms pause: the event loop clock may be frozen by the test.
+        await hass.async_add_executor_job(time.sleep, 0.01)
+    assert predicate()
 
 
 @pytest.fixture(autouse=True)

@@ -76,6 +76,8 @@ from .const import (
     CONF_MORNING_ENABLED,
     CONF_MORNING_LATEST,
     CONF_MORNING_LEARNED_ENABLED,
+    CONF_MORNING_NONWORKDAY_MODE,
+    CONF_MORNING_NONWORKDAY_START,
     CONF_MORNING_START,
     CONF_ORIGIN,
     CONF_PATH,
@@ -105,6 +107,8 @@ from .const import (
     DEFAULT_MORNING_ENABLED,
     DEFAULT_MORNING_LATEST,
     DEFAULT_MORNING_LEARNED_ENABLED,
+    DEFAULT_MORNING_NONWORKDAY_MODE,
+    DEFAULT_MORNING_NONWORKDAY_START,
     DEFAULT_MORNING_START,
     DEFAULT_NAME,
     DEFAULT_STEP_DELAY_MAX,
@@ -113,6 +117,8 @@ from .const import (
     DEFAULT_VERIFY_TIMEOUT,
     DOMAIN,
     EXCLUDED_INDICATOR,
+    NONWORKDAY_LATER,
+    NONWORKDAY_MODES,
     PREVIEW_MAX_ENTITIES,
     SUBENTRY_ROUTE,
 )
@@ -384,6 +390,24 @@ def _context_schema(options: Mapping[str, Any]) -> vol.Schema:
                 default=options.get(CONF_MORNING_START, DEFAULT_MORNING_START),
             ): TimeSelector(),
             vol.Required(
+                CONF_MORNING_NONWORKDAY_MODE,
+                default=options.get(
+                    CONF_MORNING_NONWORKDAY_MODE, DEFAULT_MORNING_NONWORKDAY_MODE
+                ),
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=NONWORKDAY_MODES,
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="morning_nonworkday_mode",
+                )
+            ),
+            vol.Required(
+                CONF_MORNING_NONWORKDAY_START,
+                default=options.get(
+                    CONF_MORNING_NONWORKDAY_START, DEFAULT_MORNING_NONWORKDAY_START
+                ),
+            ): TimeSelector(),
+            vol.Required(
                 CONF_MORNING_LATEST,
                 default=options.get(CONF_MORNING_LATEST, DEFAULT_MORNING_LATEST),
             ): minutes(0, 120),
@@ -408,11 +432,22 @@ def _context_schema(options: Mapping[str, Any]) -> vol.Schema:
     )
 
 
+def _hhmmss(value: Any) -> str:
+    """Normalise "H:MM[:SS]" so that times compare as strings."""
+    parts = [int(part) for part in str(value).split(":")] + [0, 0]
+    return f"{parts[0]:02d}:{parts[1]:02d}:{parts[2]:02d}"
+
+
 def _validate_context(hass: HomeAssistant, options: Mapping[str, Any]) -> dict[str, str]:
     earliest = float(options.get(CONF_DARKNESS_EARLIEST, DEFAULT_DARKNESS_EARLIEST))
     latest = float(options.get(CONF_DARKNESS_LATEST, DEFAULT_DARKNESS_LATEST))
     if earliest > latest:
         return {CONF_DARKNESS_LATEST: "darkness_range"}
+    mode = options.get(CONF_MORNING_NONWORKDAY_MODE, DEFAULT_MORNING_NONWORKDAY_MODE)
+    start = _hhmmss(options.get(CONF_MORNING_START, DEFAULT_MORNING_START))
+    later = _hhmmss(options.get(CONF_MORNING_NONWORKDAY_START, DEFAULT_MORNING_NONWORKDAY_START))
+    if mode == NONWORKDAY_LATER and later <= start:
+        return {CONF_MORNING_NONWORKDAY_START: "nonworkday_start_not_later"}
     # The Workday calendar has events on WORKDAYS: it would invert everything.
     if (calendar := options.get(CONF_HOLIDAY_CALENDAR)) and (
         entry := er.async_get(hass).async_get(calendar)

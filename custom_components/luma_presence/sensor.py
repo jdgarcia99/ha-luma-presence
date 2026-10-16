@@ -21,6 +21,7 @@ from .const import (
     CONF_REAR_LIGHTS,
     MODE_DREAM,
     MODE_REPLAY,
+    START_PENDING,
     STATUSES,
 )
 from .entity import LumaEntity
@@ -261,6 +262,7 @@ class ContextSensor(LumaEntity, SensorEntity):
             mode == MODE_DREAM and bool(dream_status.get("boost_applied"))
         )
         morning = engine.morning_window()
+        morning_rule = morning[2] if morning else engine.morning_rule()
         night_type = context.night_type(night) if context else day_type(night)
         return {
             "night_type": night_type,
@@ -273,9 +275,13 @@ class ContextSensor(LumaEntity, SensorEntity):
             "boost_skipped": "replay" if mode == MODE_REPLAY and weather.get("bad") else None,
             "evening_start_reason": engine.evening_start_reason(),
             "morning_window": (
-                {"start": morning[0].isoformat(), "end": morning[1].isoformat()}
+                {
+                    "start": morning[0].isoformat(),
+                    "end": morning[1].isoformat(),
+                    "rule": morning_rule,
+                }
                 if morning
-                else None
+                else ({"start": None, "end": None, "rule": morning_rule} if morning_rule else None)
             ),
         }
 
@@ -286,7 +292,7 @@ class ContextSensor(LumaEntity, SensorEntity):
         modified = (
             info["holiday_changed"]
             or info["boost_applied"]
-            or info["evening_start_reason"] not in (None, "sunset", "time")
+            or info["evening_start_reason"] not in (None, "sunset", "time", START_PENDING)
         )
         return "modified" if modified else "normal"
 

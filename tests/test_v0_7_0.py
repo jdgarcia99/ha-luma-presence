@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
@@ -39,8 +38,8 @@ from custom_components.luma_presence.const import (
     DREAM_LOW_SCORE,
     REPLAY_SAME_DAY_TYPE,
     START_CLAMPED_EARLIEST,
-    START_CLAMPED_LATEST,
     START_DARKNESS,
+    START_PENDING,
     START_SENSOR_UNAVAILABLE,
 )
 from custom_components.luma_presence.context import (
@@ -70,6 +69,7 @@ from custom_components.luma_presence.plan import (
 )
 from custom_components.luma_presence.replay import choose_source
 
+from .conftest import until
 from .test_v0_2_0 import OPTIONS
 
 TODAY = date(2026, 10, 15)  # Thursday
@@ -83,14 +83,6 @@ def _local(day: date, hour: int, minute: int = 0) -> datetime:
     return dt_util.as_utc(
         datetime(day.year, day.month, day.day, hour, minute, tzinfo=dt_util.get_default_time_zone())
     )
-
-
-async def _until(predicate: Callable[[], bool]) -> None:
-    for _ in range(300):
-        if predicate():
-            return
-        await asyncio.sleep(0)
-    assert predicate()
 
 
 async def _move(hass: HomeAssistant, freezer: FrozenDateTimeFactory, when: datetime) -> None:
@@ -351,7 +343,7 @@ async def test_darkness_tracker_rules(
     # Bright at 18:00; dark at 19:10: starts at 19:15 (5 minutes later).
     hass.states.async_set(LUX, "300")
     await hass.async_block_till_done()
-    assert tracker.evening_start(TODAY, sunset) == (_local(TODAY, 20), START_CLAMPED_LATEST)
+    assert tracker.evening_start(TODAY, sunset) == (_local(TODAY, 20), START_PENDING)
     freezer.move_to(_local(TODAY, 19, 10))
     hass.states.async_set(LUX, "20")
     await hass.async_block_till_done()
@@ -388,14 +380,14 @@ async def test_darkness_starts_the_evening(
     await hass.async_block_till_done()
     assert engine.status == "waiting"
     next_event = hass.states.get("sensor.luma_presence_next_event")
-    assert next_event.attributes["start_reason"] == START_CLAMPED_LATEST
+    assert next_event.attributes["start_reason"] == START_PENDING
     latest = engine.next_event
 
     await _move(hass, freezer, _local(TODAY, 19, 0))
     hass.states.async_set(LUX, "10")
     await hass.async_block_till_done()
     await _move(hass, freezer, _local(TODAY, 19, 5))
-    await _until(lambda: engine.status == "simulating")
+    await until(hass, lambda: engine.status == "simulating")
     assert dt_util.utcnow() < latest
     assert engine.evening_start_reason() == START_DARKNESS
     context = hass.states.get("sensor.luma_presence_context")
@@ -430,7 +422,8 @@ async def test_wake_up_sun_mode(
     assert (start, end, reason) == (_local(FRIDAY, 6, 30), sunrise, "morning")
     assert engine.morning_type(FRIDAY) == WEEKDAY
     assert engine.morning_type(date(2026, 10, 17)) == WEEKEND  # Saturday
-    assert engine._morning(date(2026, 10, 17)) is not None  # every day now
+    # Saturday: non-workday wake-up at 08:30 (v0.7.1), after sunrise: none.
+    assert engine._morning(date(2026, 10, 17)) is None
     # Already light at the start: no wake-up.
     engine._morning_start = time(9, 0)
     assert engine._morning(FRIDAY) is None
@@ -501,7 +494,7 @@ async def test_wake_up_when_leaving_before_dawn(
     assert _local(FRIDAY, 7) <= start <= _local(FRIDAY, 7, 10)
     assert engine.next_event_reason == "morning"
     await _move(hass, freezer, start + timedelta(seconds=1))
-    await _until(lambda: engine.status == "simulating")
+    await until(hass, lambda: engine.status == "simulating")
 
 
 # ----------------------------------------------------------------------
@@ -518,7 +511,7 @@ async def test_daylight_guard(
     await _turn_on(hass)
     # Dark since 21:00: the evening starts once it has been dark for 5 minutes.
     await _move(hass, freezer, _local(TODAY, 21, 6))
-    await _until(lambda: bool(controller.owned_on()))
+    await until(hass, lambda: bool(controller.owned_on()))
     owned = controller.owned_on()
 
     # Someone switches on the floodlights for a while: daylight.
@@ -529,7 +522,7 @@ async def test_daylight_guard(
     assert engine.status != "simulating"
     # Everything owned goes off within 3 minutes.
     await _move(hass, freezer, dt_util.utcnow() + timedelta(minutes=3, seconds=1))
-    await _until(lambda: all(hass.states.get(e).state == STATE_OFF for e in owned))
+    await until(hass, lambda: all(hass.states.get(e).state == STATE_OFF for e in owned))
     # Nothing turns on while it is day, routes included.
     assert await controller.async_switch("light.salon", True) is False
     assert hass.states.get("light.salon").state == STATE_OFF
@@ -541,7 +534,7 @@ async def test_daylight_guard(
     await hass.async_block_till_done()
     await _move(hass, freezer, dt_util.utcnow() + timedelta(seconds=10))
     assert not runtime.context.daylight()
-    await _until(lambda: engine.status == "simulating")
+    await until(hass, lambda: engine.status == "simulating")
 
 
 # ----------------------------------------------------------------------
@@ -743,10 +736,10 @@ async def test_plan_falls_back_to_the_same_room(
     )
     task = hass.async_create_background_task(player.async_play(plan), "test_play")
     await _move(hass, freezer, dt_util.utcnow() + timedelta(seconds=61))
-    await _until(lambda: runtime.controller.last_action is not None)
+    await until(hass, lambda: runtime.controller.last_action is not None)
     await _move(hass, freezer, dt_util.utcnow() + timedelta(seconds=11))
     await _move(hass, freezer, dt_util.utcnow() + timedelta(seconds=11))
-    await _until(lambda: hass.states.get("light.hall").state == STATE_ON)
+    await until(hass, lambda: hass.states.get("light.hall").state == STATE_ON)
     assert hass.states.get("light.salon").state == STATE_OFF
     last = runtime.controller.last_action
     assert (last["entity_id"], last.get("original")) == ("light.hall", "light.salon")

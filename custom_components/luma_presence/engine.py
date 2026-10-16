@@ -26,12 +26,16 @@ from .const import (
     CONF_MORNING_ENABLED,
     CONF_MORNING_LATEST,
     CONF_MORNING_LEARNED_ENABLED,
+    CONF_MORNING_NONWORKDAY_MODE,
+    CONF_MORNING_NONWORKDAY_START,
     CONF_MORNING_START,
     CONF_REAR_LIGHTS,
     DAYLIGHT_OFF_MAX_S,
     DEFAULT_MORNING_ENABLED,
     DEFAULT_MORNING_LATEST,
     DEFAULT_MORNING_LEARNED_ENABLED,
+    DEFAULT_MORNING_NONWORKDAY_MODE,
+    DEFAULT_MORNING_NONWORKDAY_START,
     DEFAULT_MORNING_START,
     DOMAIN,
     EVENT_END,
@@ -42,6 +46,11 @@ from .const import (
     MODE_REPLAY,
     MODE_SUN,
     MODE_TIME,
+    MORNING_RULE_LEARNED,
+    MORNING_RULE_NONWORKDAY_LATER,
+    MORNING_RULE_NONWORKDAY_SKIP,
+    MORNING_RULE_WORKDAY,
+    NONWORKDAY_SKIP,
     ORIGIN_MANUAL,
     ORIGIN_RESTORE,
     ORIGIN_SCHEDULE,
@@ -105,6 +114,13 @@ class SimulationEngine:
         self._morning_start = _time(config.get(CONF_MORNING_START), DEFAULT_MORNING_START)
         self._morning_latest = timedelta(
             minutes=float(config.get(CONF_MORNING_LATEST, DEFAULT_MORNING_LATEST))
+        )
+        # Sun/Time on non-workdays: wake up later, or not at all.
+        self._nonworkday_mode = str(
+            config.get(CONF_MORNING_NONWORKDAY_MODE, DEFAULT_MORNING_NONWORKDAY_MODE)
+        )
+        self._nonworkday_start = _time(
+            config.get(CONF_MORNING_NONWORKDAY_START), DEFAULT_MORNING_NONWORKDAY_START
         )
         # Master switched on inside a wake-up window: (day, earliest start).
         self._wake_delay: tuple[date, datetime] | None = None
@@ -379,12 +395,28 @@ class SimulationEngine:
             return None
         return start, end, reason
 
-    def _morning(self, day: date) -> tuple[datetime, datetime, str] | None:
-        """Wake-up window of a local date: from the start until it is light."""
+    def _morning_rule(self, day: date) -> str | None:
+        """Which rule decides the wake-up of a date (None: wake-up off)."""
         learned = self.settings.mode in (MODE_REPLAY, MODE_DREAM)
         if not (self._morning_learned if learned else self._morning_enabled):
             return None
+        if learned:
+            return MORNING_RULE_LEARNED
+        if self._is_workday(day):
+            return MORNING_RULE_WORKDAY
+        if self._nonworkday_mode == NONWORKDAY_SKIP:
+            return MORNING_RULE_NONWORKDAY_SKIP
+        return MORNING_RULE_NONWORKDAY_LATER
+
+    def _morning(self, day: date) -> tuple[datetime, datetime, str] | None:
+        """Wake-up window of a local date: from the start until it is light."""
+        rule = self._morning_rule(day)
+        if rule in (None, MORNING_RULE_NONWORKDAY_SKIP):
+            return None
+        learned = rule == MORNING_RULE_LEARNED
         start_time = self._morning_start
+        if rule == MORNING_RULE_NONWORKDAY_LATER:
+            start_time = self._nonworkday_start
         if learned and self.dream is not None:
             first = self.dream.morning_first_on(self.morning_type(day))
             if first is not None and first > start_time:
@@ -436,15 +468,22 @@ class SimulationEngine:
                 return window[2]
         return None
 
-    def morning_window(self) -> tuple[datetime, datetime] | None:
-        """Current or next morning window (today or tomorrow)."""
+    def morning_window(self) -> tuple[datetime, datetime, str | None] | None:
+        """Current or next morning window (today or tomorrow), and its rule."""
         now = dt_util.utcnow()
         today = dt_util.as_local(now).date()
         for offset in (0, 1):
-            window = self._morning(today + timedelta(days=offset))
+            day = today + timedelta(days=offset)
+            window = self._morning(day)
             if window is not None and now < window[1]:
-                return window[0], window[1]
+                return window[0], window[1], self._morning_rule(day)
         return None
+
+    def morning_rule(self) -> str | None:
+        """Rule of the next morning: today's before midday, then tomorrow's."""
+        now = dt_util.as_local(dt_util.utcnow())
+        day = now.date() if now.hour < 12 else now.date() + timedelta(days=1)
+        return self._morning_rule(day)
 
     def _window(self, day: date, mode: str | None = None) -> tuple[datetime, datetime] | None:
         """Evening window (start, end) that starts on a local date."""

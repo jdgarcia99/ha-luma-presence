@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 from datetime import date, datetime, timedelta
 import random
 import time
@@ -53,6 +52,7 @@ from custom_components.luma_presence.model import (
 )
 from custom_components.luma_presence.monitor import ROLE_DREAM
 
+from .conftest import until
 from .test_v0_2_0 import OPTIONS
 from .test_v0_4_0 import _learned
 
@@ -263,14 +263,6 @@ def _local(day: date, hour: int, minute: int = 0) -> datetime:
     )
 
 
-async def _until(predicate: Callable[[], bool]) -> None:
-    for _ in range(300):
-        if predicate():
-            return
-        await asyncio.sleep(0)
-    assert predicate()
-
-
 async def _move(hass: HomeAssistant, freezer: FrozenDateTimeFactory, when: datetime) -> None:
     freezer.move_to(when)
     async_fire_time_changed(hass, when)
@@ -333,7 +325,7 @@ async def test_dream_plays_a_night(
     assert model_sensor.attributes["weekday"]["nights"] >= 7
 
     await _move(hass, freezer, runtime.engine.next_event + timedelta(seconds=1))
-    await _until(lambda: runtime.player.plan is not None)
+    await until(hass, lambda: runtime.player.plan is not None)
     plan = runtime.player.plan
     assert plan.source == "dream"
     assert plan.transitions
@@ -359,14 +351,14 @@ async def test_plan_survives_a_restart(
     entry = await _setup(hass, freezer, _dream_days())
     runtime = entry.runtime_data
     await _move(hass, freezer, runtime.engine.next_event + timedelta(seconds=1))
-    await _until(lambda: runtime.player.plan is not None)
+    await until(hass, lambda: runtime.player.plan is not None)
     before = runtime.player.plan
 
     await _move(hass, freezer, _local(TODAY, 21, 15))
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     runtime = entry.runtime_data
-    await _until(lambda: runtime.player.plan is not None)
+    await until(hass, lambda: runtime.player.plan is not None)
     after = runtime.player.plan
     assert after.transitions == before.transitions
     assert after.seed == before.seed
@@ -380,7 +372,7 @@ async def test_fallback_chain(
     entry = await _setup(hass, freezer, None)
     runtime = entry.runtime_data
     await _move(hass, freezer, runtime.engine.next_event + timedelta(seconds=1))
-    await _until(lambda: _is_on(hass, "light.bedroom"))  # Sun mode's first step
+    await until(hass, lambda: _is_on(hass, "light.bedroom"))  # Sun mode's first step
     realism = hass.states.get("sensor.luma_presence_realism")
     assert realism.state == "unknown"
     assert realism.attributes["source"] == "fallback"
@@ -395,7 +387,7 @@ async def test_fallback_to_replay(
     entry = await _setup(hass, freezer, _learned())
     runtime = entry.runtime_data
     await _move(hass, freezer, runtime.engine.next_event + timedelta(seconds=1))
-    await _until(lambda: runtime.player.plan is not None)
+    await until(hass, lambda: runtime.player.plan is not None)
     assert runtime.player.plan.source == "replay"
     realism = hass.states.get("sensor.luma_presence_realism")
     assert realism.attributes["source"] == "replay"
@@ -463,7 +455,7 @@ async def test_morning_report(
     reports = async_capture_events(hass, EVENT_NIGHT_REPORT)
     controller = entry.runtime_data.controller
     # Wait until the switch is recorded, not only until the light is on.
-    await _until(
+    await until(hass, 
         lambda: (controller.last_action or {}).get("entity_id") == "light.bedroom"
     )
 

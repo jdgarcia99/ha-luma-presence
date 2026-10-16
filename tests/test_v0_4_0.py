@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from itertools import pairwise
 from typing import Any
@@ -42,6 +41,7 @@ from custom_components.luma_presence.replay import (
     night_data,
 )
 
+from .conftest import until
 from .test_v0_2_0 import OPTIONS
 
 DAY = 86400
@@ -275,14 +275,6 @@ def _learned() -> dict[str, dict[str, list[Any]]]:
     return days
 
 
-async def _until(predicate: Callable[[], bool]) -> None:
-    for _ in range(200):
-        if predicate():
-            return
-        await asyncio.sleep(0)
-    assert predicate()
-
-
 def _local(day: date, hour: int, minute: int = 0, second: int = 0) -> datetime:
     return dt_util.as_utc(
         datetime(day.year, day.month, day.day, hour, minute, second,
@@ -343,7 +335,7 @@ async def test_replay_plays_the_source_night(
     start = runtime.engine.next_event
 
     await _move(hass, freezer, start + timedelta(seconds=1))
-    await _until(lambda: _is_on(hass, "light.bedroom"))
+    await until(hass, lambda: _is_on(hass, "light.bedroom"))
     assert not _is_on(hass, "light.salon")
     sensor = hass.states.get("sensor.luma_presence_replay_source")
     assert sensor.state == SOURCE.isoformat()
@@ -354,13 +346,13 @@ async def test_replay_plays_the_source_night(
     assert (ROLE_REPLAY, None) in runtime.monitor._roles["light.salon"]
 
     await _move(hass, freezer, _local(TONIGHT, 21, 0, 30))
-    await _until(lambda: _is_on(hass, "light.salon"))
+    await until(hass, lambda: _is_on(hass, "light.salon"))
     last = hass.states.get("sensor.luma_presence_last_action").attributes
     assert last["mode"] == "replay"
     assert last["entity_id"] == "light.salon"
 
     await _move(hass, freezer, _local(TONIGHT, 22, 0, 30))
-    await _until(lambda: not _is_on(hass, "light.salon"))
+    await until(hass, lambda: not _is_on(hass, "light.salon"))
 
     next_day = TONIGHT + timedelta(days=1)
     for when in (_local(TONIGHT, 23, 30, 30), _local(next_day, 0, 10, 30),
@@ -386,13 +378,13 @@ async def test_real_absence_switches_off_lights_left_on(
 
     # Off at the window start, as on the source night until 21:00...
     await _move(hass, freezer, entry.runtime_data.engine.next_event + timedelta(seconds=1))
-    await _until(lambda: _is_on(hass, "light.bedroom"))
-    await _until(lambda: not _is_on(hass, "light.salon"))
+    await until(hass, lambda: _is_on(hass, "light.bedroom"))
+    await until(hass, lambda: not _is_on(hass, "light.salon"))
     # ...then on at 21:00 and off at 22:00.
     await _move(hass, freezer, _local(TONIGHT, 21, 0, 30))
-    await _until(lambda: _is_on(hass, "light.salon"))
+    await until(hass, lambda: _is_on(hass, "light.salon"))
     await _move(hass, freezer, _local(TONIGHT, 22, 0, 30))
-    await _until(lambda: not _is_on(hass, "light.salon"))
+    await until(hass, lambda: not _is_on(hass, "light.salon"))
 
 
 async def test_test_with_people_home_keeps_ownership_rule(
@@ -405,7 +397,7 @@ async def test_test_with_people_home_keeps_ownership_rule(
     hass.states.async_set("light.salon", STATE_ON)
 
     await _move(hass, freezer, entry.runtime_data.engine.next_event + timedelta(seconds=1))
-    await _until(lambda: _is_on(hass, "light.bedroom"))
+    await until(hass, lambda: _is_on(hass, "light.bedroom"))
     for when in (_local(TONIGHT, 21, 0, 30), _local(TONIGHT, 22, 0, 30)):
         await _move(hass, freezer, when)
         assert _is_on(hass, "light.salon")
@@ -419,7 +411,7 @@ async def test_locked_light_gets_its_state_after_unlock(
     entry = await _setup_replay(hass, freezer, _learned())
     controller = entry.runtime_data.controller
     await _move(hass, freezer, entry.runtime_data.engine.next_event + timedelta(seconds=1))
-    await _until(lambda: _is_on(hass, "light.bedroom"))
+    await until(hass, lambda: _is_on(hass, "light.bedroom"))
 
     controller.lock(["light.salon"])
     await _move(hass, freezer, _local(TONIGHT, 21, 0, 30))
@@ -427,7 +419,7 @@ async def test_locked_light_gets_its_state_after_unlock(
 
     controller.unlock(["light.salon"])
     await hass.async_block_till_done()
-    await _until(lambda: _is_on(hass, "light.salon"))
+    await until(hass, lambda: _is_on(hass, "light.salon"))
 
 
 async def test_restart_rebuilds_the_same_night(
@@ -438,7 +430,7 @@ async def test_restart_rebuilds_the_same_night(
     runtime = entry.runtime_data
     runtime.settings.replay_jitter = 10
     await _move(hass, freezer, runtime.engine.next_event + timedelta(seconds=1))
-    await _until(lambda: runtime.replay.status is not None)
+    await until(hass, lambda: runtime.replay.status is not None)
     saved = dict(runtime.replay._saved)
     plan = await runtime.replay.async_plan(runtime.engine._current_window(dt_util.utcnow()))
 
@@ -464,7 +456,7 @@ async def test_fallback_runs_sun_mode(
     sun_start = runtime.engine.next_event
     await _move(hass, freezer, sun_start + timedelta(seconds=1))
     # Sun mode's first step keeps the front lights on.
-    await _until(lambda: _is_on(hass, "light.bedroom"))
+    await until(hass, lambda: _is_on(hass, "light.bedroom"))
     assert runtime.engine.status == "simulating"
     sensor = hass.states.get("sensor.luma_presence_replay_source")
     assert sensor.state == "unknown"

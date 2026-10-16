@@ -212,6 +212,8 @@
           "morning_enabled": "Despertar en los modos Sol y Horario",
           "morning_learned_enabled": "Despertar en los modos Replay y Dream",
           "morning_start": "Inicio del despertar",
+          "morning_nonworkday_mode": "Despertar en días no laborables",
+          "morning_nonworkday_start": "Hora de despertar en días no laborables",
           "morning_latest_min": "El despertar puede durar tras el amanecer (minutos)",
           "workday_sensor": "Sensor de Workday",
           "holiday_calendar": "Calendario de festivos",
@@ -226,6 +228,8 @@
           "morning_enabled": "Sol y Horario: luces encendidas desde el inicio del despertar hasta que haya luz.",
           "morning_learned_enabled": "Replay y Dream: desde la hora a la que la casa suele despertar (aprendida), nunca antes del inicio del despertar, hasta que haya luz.",
           "morning_start": "Despertar más temprano. Si la simulación se activa durante el despertar, empieza unos minutos después.",
+          "morning_nonworkday_mode": "Solo Sol y Horario (Replay y Dream siguen lo aprendido). Más tarde: empieza a la hora de despertar de los días no laborables. No simular: sin despertar los sábados, domingos y festivos.",
+          "morning_nonworkday_start": "Se usa con Más tarde. Debe ser posterior al inicio del despertar. Si a esa hora ya hay luz, ese día no hay despertar.",
           "morning_latest_min": "Con un sensor de iluminancia, el despertar termina cuando lleva 5 minutos habiendo luz; si sigue oscuro, hasta este tiempo después del amanecer. Sin sensor termina al amanecer.",
           "workday_sensor": "Un sensor de la integración Workday: decide qué días son laborables (tiene preferencia sobre el calendario de festivos).",
           "holiday_calendar": "Los eventos de día completo (o que cubren el mediodía) son festivos: la noche anterior a uno es una noche de fin de semana. No uses aquí el calendario de Workday (sus eventos son días laborables): usa el sensor de Workday.",
@@ -241,7 +245,8 @@
       "alarm_required": "Selecciona el panel de alarma para controlar la simulación con él.",
       "activate_states_required": "Selecciona al menos un estado de la alarma.",
       "darkness_range": "El inicio más tardío no puede ser anterior al más temprano.",
-      "calendar_is_workday": "Este calendario es de la integración Workday y sus eventos son días laborables, no festivos. Elígelo como sensor de Workday."
+      "calendar_is_workday": "Este calendario es de la integración Workday y sus eventos son días laborables, no festivos. Elígelo como sensor de Workday.",
+      "nonworkday_start_not_later": "Con Más tarde, el despertar de los días no laborables debe empezar después del inicio del despertar."
     }
   },
   "config_subentries": {
@@ -462,7 +467,8 @@
               "clamped_latest": "Inicio más tardío",
               "sensor_unavailable": "Puesta de sol (sensor no disponible)",
               "morning": "Despertar",
-              "time": "Hora de inicio"
+              "time": "Hora de inicio",
+              "pending": "Pendiente"
             }
           }
         }
@@ -575,7 +581,8 @@
               "clamped_latest": "Inicio más tardío",
               "sensor_unavailable": "Puesta de sol (sensor no disponible)",
               "morning": "Despertar",
-              "time": "Hora de inicio"
+              "time": "Hora de inicio",
+              "pending": "Pendiente"
             }
           }
         }
@@ -612,6 +619,12 @@
       "options": {
         "weekday": "Noche entre semana",
         "weekend": "Noche de fin de semana"
+      }
+    },
+    "morning_nonworkday_mode": {
+      "options": {
+        "later": "Más tarde",
+        "skip": "No simular"
       }
     }
   },

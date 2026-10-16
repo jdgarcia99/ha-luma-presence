@@ -69,6 +69,7 @@ from .const import (
     START_CLAMPED_EARLIEST,
     START_CLAMPED_LATEST,
     START_DARKNESS,
+    START_PENDING,
     START_SENSOR_UNAVAILABLE,
 )
 from .plan import day_type, is_workday
@@ -422,8 +423,9 @@ class DarknessTracker:
     def evening_start(self, day: date, sunset: datetime) -> tuple[datetime, str]:
         """Start of the evening window of a day (UTC), and why.
 
-        Before darkness is confirmed the latest allowed time is returned
-        provisionally, so the engine waits for it; darkness moves it earlier.
+        Until the start is decided the latest allowed time (or the confirmed
+        darkness) is returned provisionally with the reason "pending", so the
+        engine waits for it; darkness moves it earlier.
         """
         if day in self._evenings:
             return self._evenings[day]
@@ -440,10 +442,12 @@ class DarknessTracker:
                 reason = START_DARKNESS if confirmed >= lo else START_CLAMPED_EARLIEST
                 if now >= start:
                     self._evenings[day] = (start, reason)
-                return start, reason
+                    return start, reason
+                return start, START_PENDING
         if now >= hi:
             self._evenings[day] = (hi, START_CLAMPED_LATEST)
-        return hi, START_CLAMPED_LATEST
+            return hi, START_CLAMPED_LATEST
+        return hi, START_PENDING
 
     def daylight(self) -> bool:
         """True once it has stayed above the threshold for 5 minutes."""

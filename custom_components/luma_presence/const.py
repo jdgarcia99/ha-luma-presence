@@ -107,6 +107,8 @@ CONF_MORNING_ENABLED: Final = "morning_enabled"
 CONF_MORNING_LEARNED_ENABLED: Final = "morning_learned_enabled"
 CONF_MORNING_START: Final = "morning_start"
 CONF_MORNING_LATEST: Final = "morning_latest_min"
+CONF_MORNING_NONWORKDAY_MODE: Final = "morning_nonworkday_mode"
+CONF_MORNING_NONWORKDAY_START: Final = "morning_nonworkday_start"
 # Replaced by the wake-up options in config entry version 3.
 CONF_MORNING_END: Final = "morning_end"
 CONF_MORNING_WORKDAYS_ONLY: Final = "morning_workdays_only"
@@ -122,6 +124,17 @@ DEFAULT_MORNING_ENABLED: Final = False
 DEFAULT_MORNING_LEARNED_ENABLED: Final = True
 DEFAULT_MORNING_START: Final = "06:30:00"
 DEFAULT_MORNING_LATEST: Final = 30
+# Wake-up on non-workdays in Sun and Time modes (v0.7.1).
+NONWORKDAY_LATER: Final = "later"
+NONWORKDAY_SKIP: Final = "skip"
+NONWORKDAY_MODES: Final = [NONWORKDAY_LATER, NONWORKDAY_SKIP]
+DEFAULT_MORNING_NONWORKDAY_MODE: Final = NONWORKDAY_LATER
+DEFAULT_MORNING_NONWORKDAY_START: Final = "08:30:00"
+# Which rule decided the wake-up start (context sensor).
+MORNING_RULE_WORKDAY: Final = "workday"
+MORNING_RULE_NONWORKDAY_LATER: Final = "nonworkday_later"
+MORNING_RULE_NONWORKDAY_SKIP: Final = "nonworkday_skip"
+MORNING_RULE_LEARNED: Final = "learned"
 WAKE_DELAY_MAX_MIN: Final = 10
 # The daylight guard switches the lights off within this many seconds.
 DAYLIGHT_OFF_MAX_S: Final = 180
@@ -143,6 +156,8 @@ START_SUNSET: Final = "sunset"
 START_CLAMPED_EARLIEST: Final = "clamped_earliest"
 START_CLAMPED_LATEST: Final = "clamped_latest"
 START_SENSOR_UNAVAILABLE: Final = "sensor_unavailable"
+# The evening start is not decided yet (waiting for darkness or the latest time).
+START_PENDING: Final = "pending"
 START_MORNING: Final = "morning"
 START_REASONS: Final = [
     START_DARKNESS,
@@ -150,6 +165,7 @@ START_REASONS: Final = [
     START_CLAMPED_EARLIEST,
     START_CLAMPED_LATEST,
     START_SENSOR_UNAVAILABLE,
+    START_PENDING,
     START_MORNING,
 ]
 # Where tonight's night type comes from

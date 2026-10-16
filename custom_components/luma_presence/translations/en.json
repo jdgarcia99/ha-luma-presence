@@ -212,6 +212,8 @@
           "morning_enabled": "Wake-up in Sun and Time modes",
           "morning_learned_enabled": "Wake-up in Replay and Dream modes",
           "morning_start": "Wake-up start",
+          "morning_nonworkday_mode": "Wake-up on non-workdays",
+          "morning_nonworkday_start": "Wake-up start on non-workdays",
           "morning_latest_min": "Wake-up may last after sunrise (minutes)",
           "workday_sensor": "Workday sensor",
           "holiday_calendar": "Holiday calendar",
@@ -226,6 +228,8 @@
           "morning_enabled": "Sun and Time: lights on from the wake-up start until it is light.",
           "morning_learned_enabled": "Replay and Dream: from the time the house usually wakes up (learned), never before the wake-up start, until it is light.",
           "morning_start": "Earliest wake-up. If the simulation is switched on during the wake-up, it starts a few minutes later.",
+          "morning_nonworkday_mode": "Sun and Time only (Replay and Dream follow what they learned). Later: start at the non-workday wake-up time. Do not simulate: no wake-up on Saturdays, Sundays and holidays.",
+          "morning_nonworkday_start": "Used with Later. Must be later than the wake-up start. If it is already light by then, there is no wake-up that day.",
           "morning_latest_min": "With an illuminance sensor, the wake-up ends when it has been light for 5 minutes; if it is still dark, up to this long after sunrise. Without a sensor it ends at sunrise.",
           "workday_sensor": "A Workday integration sensor: decides which days are workdays (preferred over the holiday calendar).",
           "holiday_calendar": "All-day events (or events covering midday) are holidays: the night before one is a weekend night. Do not use the Workday calendar here (its events are workdays): use the Workday sensor instead.",
@@ -241,7 +245,8 @@
       "alarm_required": "Select the alarm panel to control the simulation with it.",
       "activate_states_required": "Select at least one alarm state.",
       "darkness_range": "The latest start must not be before the earliest start.",
-      "calendar_is_workday": "This calendar comes from the Workday integration and its events are workdays, not holidays. Choose it as the Workday sensor instead."
+      "calendar_is_workday": "This calendar comes from the Workday integration and its events are workdays, not holidays. Choose it as the Workday sensor instead.",
+      "nonworkday_start_not_later": "With Later, the non-workday wake-up must start later than the wake-up start."
     }
   },
   "config_subentries": {
@@ -462,7 +467,8 @@
               "clamped_latest": "Latest start",
               "sensor_unavailable": "Sunset (sensor unavailable)",
               "morning": "Wake-up",
-              "time": "Start time"
+              "time": "Start time",
+              "pending": "Pending"
             }
           }
         }
@@ -575,7 +581,8 @@
               "clamped_latest": "Latest start",
               "sensor_unavailable": "Sunset (sensor unavailable)",
               "morning": "Wake-up",
-              "time": "Start time"
+              "time": "Start time",
+              "pending": "Pending"
             }
           }
         }
@@ -612,6 +619,12 @@
       "options": {
         "weekday": "Weekday night",
         "weekend": "Weekend night"
+      }
+    },
+    "morning_nonworkday_mode": {
+      "options": {
+        "later": "Later",
+        "skip": "Do not simulate"
       }
     }
   },

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 from datetime import datetime, time, timedelta
 from typing import Any
 
@@ -48,6 +47,7 @@ from custom_components.luma_presence.const import (
     SUBENTRY_ROUTE,
 )
 
+from .conftest import until
 from .test_v0_2_0 import OPTIONS
 
 BEDROOM = "light.dormitorio"
@@ -89,15 +89,6 @@ async def _setup(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     return entry
-
-
-async def _until(predicate: Callable[[], bool]) -> None:
-    """Let background tasks run until the predicate holds."""
-    for _ in range(100):
-        if predicate():
-            return
-        await asyncio.sleep(0)
-    assert predicate()
 
 
 def _is_on(hass: HomeAssistant, entity_id: str) -> bool:
@@ -367,7 +358,7 @@ async def test_sequence_window(
     freezer.move_to(first)
     async_fire_time_changed(hass, first)
     await hass.async_block_till_done()
-    await _until(lambda: not sequences.running)
+    await until(hass, lambda: not sequences.running)
     assert ("on", BATHROOM) in _switches(events)
     assert first + timedelta(minutes=45) <= sequences.next_run <= first + timedelta(minutes=90)
 
@@ -397,7 +388,7 @@ async def test_master_off_cancels_route(
     )
 
     sequences.async_run_now("Bathroom")
-    await _until(lambda: _is_on(hass, BEDROOM))
+    await until(hass, lambda: _is_on(hass, BEDROOM))
     assert hass.states.get("binary_sensor.luma_presence_sequence_running").state == STATE_ON
     assert controller.owner_of(BEDROOM) == OWNER_SEQUENCE
 
@@ -405,7 +396,7 @@ async def test_master_off_cancels_route(
     await hass.async_block_till_done()
     assert not sequences.running
     assert not _is_on(hass, BEDROOM)
-    await _until(lambda: not controller.is_locked(BEDROOM))
+    await until(hass, lambda: not controller.is_locked(BEDROOM))
     assert hass.states.get("binary_sensor.luma_presence_sequence_running").state == STATE_OFF
 
 
@@ -420,7 +411,7 @@ async def test_master_off_keep_on(
     await hass.services.async_call(DOMAIN, "start", {}, blocking=True)
 
     sequences.async_run_now()
-    await _until(lambda: _is_on(hass, BEDROOM))
+    await until(hass, lambda: _is_on(hass, BEDROOM))
     await hass.services.async_call(DOMAIN, "stop", {"lights_behavior": "keep_on"}, blocking=True)
     await hass.async_block_till_done()
     assert not sequences.running
@@ -437,12 +428,12 @@ async def test_sequences_off_cancels_route(
     for service in ("turn_on", "turn_off"):
         if service == "turn_off":
             sequences.async_run_now()
-            await _until(lambda: _is_on(hass, BEDROOM))
+            await until(hass, lambda: _is_on(hass, BEDROOM))
         await hass.services.async_call(
             "switch", service, {"entity_id": "switch.luma_presence_sequences"}, blocking=True
         )
     assert not sequences.running
-    await _until(lambda: sequences._off_task is not None)
+    await until(hass, lambda: sequences._off_task is not None)
     await sequences._off_task
     assert not _is_on(hass, BEDROOM)
 
