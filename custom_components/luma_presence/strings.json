@@ -87,6 +87,7 @@
           "learning": "Learning",
           "learning_preview": "Learning preview",
           "presence": "People and alarm",
+          "context": "Context",
           "sequences": "Night sequences",
           "dream": "Dream",
           "monitoring": "Monitoring",
@@ -179,11 +180,13 @@
         "description": "Raise a Repairs issue, and fire the `luma_presence_light_unavailable` event, when a simulation or route light stays unavailable.",
         "data": {
           "unavailable_alert_minutes": "Alert if a light is unavailable for (minutes)",
-          "report_notify": "Send the morning report to"
+          "report_notify": "Send the morning report to",
+          "verify_timeout": "Wait for a light to obey (seconds)"
         },
         "data_description": {
           "unavailable_alert_minutes": "0 turns the alerts off.",
-          "report_notify": "A notify entity (notify.my_phone) or service (notify.mobile_app_my_phone). Leave it empty to only fire the luma_presence_night_report event."
+          "report_notify": "A notify entity (notify.my_phone) or service (notify.mobile_app_my_phone). Leave it empty to only fire the luma_presence_night_report event.",
+          "verify_timeout": "After each command LumaPresence checks that the light reached the expected state, retries once, and otherwise uses another light of the same room. 0 turns the check off."
         }
       },
       "dream": {
@@ -197,6 +200,34 @@
           "dream_candidates": "Nights generated before choosing the most realistic one.",
           "dream_max_similarity": "A candidate more similar than this to one of the last 7 nights (share of the same rooms at the same times) is discarded."
         }
+      },
+      "context": {
+        "title": "Context",
+        "description": "Optional context for the simulation: start the evening when it gets dark, simulate a dark morning before work, treat holidays like weekends, and add light when the weather is bad.",
+        "data": {
+          "darkness_sensor": "Illuminance sensor",
+          "darkness_threshold_lx": "Darkness threshold",
+          "darkness_earliest_min": "Earliest start (minutes from sunset)",
+          "darkness_latest_min": "Latest start (minutes from sunset)",
+          "morning_enabled": "Simulate dark mornings",
+          "morning_start": "Morning start",
+          "morning_end": "Morning end",
+          "morning_workdays_only": "Only on workdays",
+          "holiday_calendar": "Holiday calendar",
+          "weather_entity": "Weather",
+          "bad_weather_boost": "Bad weather boost"
+        },
+        "data_description": {
+          "darkness_sensor": "The evening starts when it has stayed below the threshold for 5 minutes, between the earliest and the latest start. Without readings, at sunset.",
+          "darkness_threshold_lx": "Below this illuminance it counts as dark.",
+          "darkness_earliest_min": "Negative values are before sunset.",
+          "darkness_latest_min": "If it is not dark by then, the evening starts anyway.",
+          "morning_enabled": "Lights on before work while it is still dark: from the morning start until the morning end or sunrise, whichever comes first.",
+          "morning_workdays_only": "Not on Saturdays, Sundays or holidays.",
+          "holiday_calendar": "All-day events (or events covering midday) are holidays: the night before one is a weekend night.",
+          "weather_entity": "Rain, snow, storms, hail or less than 8 °C count as bad weather.",
+          "bad_weather_boost": "Dream: the two busiest evening rooms start this much more often. Sun and Time: one more light on."
+        }
       }
     },
     "error": {
@@ -204,7 +235,9 @@
       "facade_not_subset": "Front and rear lights must also be simulation lights.",
       "facade_overlap": "A light cannot be both a front and a rear light.",
       "alarm_required": "Select the alarm panel to control the simulation with it.",
-      "activate_states_required": "Select at least one alarm state."
+      "activate_states_required": "Select at least one alarm state.",
+      "darkness_range": "The latest start must not be before the earliest start.",
+      "morning_range": "The morning end must be after the morning start."
     }
   },
   "config_subentries": {
@@ -414,7 +447,21 @@
         }
       },
       "next_event": {
-        "name": "Next event"
+        "name": "Next event",
+        "state_attributes": {
+          "start_reason": {
+            "name": "Evening start",
+            "state": {
+              "darkness": "Darkness",
+              "sunset": "Sunset",
+              "clamped_earliest": "Earliest start (already dark)",
+              "clamped_latest": "Latest start",
+              "sensor_unavailable": "Sunset (sensor unavailable)",
+              "morning": "Morning window",
+              "time": "Start time"
+            }
+          }
+        }
       },
       "last_action": {
         "name": "Last action"
@@ -490,6 +537,42 @@
       },
       "model": {
         "name": "Dream model"
+      },
+      "context": {
+        "name": "Context",
+        "state": {
+          "normal": "Normal",
+          "modified": "Modified"
+        },
+        "state_attributes": {
+          "night_type": {
+            "name": "Night type",
+            "state": {
+              "weekday": "Weekday night",
+              "weekend": "Weekend night"
+            }
+          },
+          "night_type_source": {
+            "name": "Night type source",
+            "state": {
+              "calendar": "Holiday calendar",
+              "weekday_rule": "Day of the week",
+              "calendar_unavailable": "Calendar unavailable (day of the week)"
+            }
+          },
+          "evening_start_reason": {
+            "name": "Evening start",
+            "state": {
+              "darkness": "Darkness",
+              "sunset": "Sunset",
+              "clamped_earliest": "Earliest start (already dark)",
+              "clamped_latest": "Latest start",
+              "sensor_unavailable": "Sunset (sensor unavailable)",
+              "morning": "Morning window",
+              "time": "Start time"
+            }
+          }
+        }
       }
     }
   },
@@ -616,6 +699,10 @@
     "light_unavailable": {
       "title": "LumaPresence: \"{entity}\" is unavailable",
       "description": "{entity} (`{entity_id}`) has been unavailable since {since}. LumaPresence uses it as: {roles}. While it is unavailable, the simulation cannot switch it. Check the device; this issue disappears as soon as the light is back."
+    },
+    "light_unresponsive": {
+      "title": "LumaPresence: \"{entity}\" does not obey",
+      "description": "{entity} (`{entity_id}`) reports that it is available but did not reach the requested state {failures} times tonight, even after a retry. Check the device or its integration. This issue disappears after a night without failures."
     }
   },
   "exceptions": {
@@ -635,7 +722,7 @@
       "message": "Dream cannot plan tonight yet ({reason}). It needs enough learned nights of tonight's day type."
     },
     "night_report": {
-      "message": "Last night ({mode}): {lights} lights switched {switches} times. Rooms: {rooms}. Realism: {score}. Failures: {failures}."
+      "message": "Last night ({mode}): {lights} lights switched {switches} times. Rooms: {rooms}. Realism: {score}. Lights that did not obey: {failures}."
     }
   }
 }

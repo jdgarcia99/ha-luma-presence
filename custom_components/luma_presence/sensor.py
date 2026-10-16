@@ -13,6 +13,7 @@ from homeassistant.components.sensor import (
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_FRONT_LIGHTS,
@@ -24,6 +25,7 @@ from .const import (
 )
 from .entity import LumaEntity
 from .models import LumaConfigEntry
+from .plan import day_type, night_of
 
 
 async def async_setup_entry(
@@ -41,6 +43,7 @@ async def async_setup_entry(
             RealismSensor(entry),
             TonightPlanSensor(entry),
             DreamModelSensor(entry),
+            ContextSensor(entry),
             LastActionSensor(entry),
             LearningDaysSensor(entry),
             SimulationLightsSensor(entry),
@@ -81,8 +84,9 @@ class NextEventSensor(LumaEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the kind of the next event."""
-        return {"kind": self._runtime.engine.next_event_kind}
+        """Return the kind of the next event and why the window starts then."""
+        engine = self._runtime.engine
+        return {"kind": engine.next_event_kind, "start_reason": engine.next_event_reason}
 
 
 class NextSequenceSensor(LumaEntity, SensorEntity):
@@ -232,6 +236,66 @@ class DreamModelSensor(LumaEntity, SensorEntity):
         """Return the model summary per day type."""
         dream = self._runtime.dream
         return dream.summary() if dream else {}
+
+
+class ContextSensor(LumaEntity, SensorEntity):
+    """What the context changes tonight: night type, weather, darkness, morning."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = ["normal", "modified"]
+    _attr_icon = "mdi:weather-night-partly-cloudy"
+
+    def __init__(self, entry: LumaConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(entry, "context", "sensor")
+
+    def _info(self) -> dict[str, Any]:
+        runtime = self._runtime
+        context = runtime.context
+        engine = runtime.engine
+        night = night_of(dt_util.as_local(dt_util.utcnow()))
+        weather = context.weather() if context else {"condition": None, "bad": False}
+        mode = runtime.settings.mode
+        dream_status = runtime.dream.status if runtime.dream else {}
+        boost = engine.weather_boost > 0 or (
+            mode == MODE_DREAM and bool(dream_status.get("boost_applied"))
+        )
+        morning = engine.morning_window()
+        night_type = context.night_type(night) if context else day_type(night)
+        return {
+            "night_type": night_type,
+            "night_type_source": context.night_type_source if context else None,
+            "holiday_changed": night_type != day_type(night),
+            "weather_condition": weather.get("condition"),
+            "bad_weather": weather.get("bad", False),
+            "boost_applied": boost,
+            # Replay plays a real night: the weather modifier is not applied.
+            "boost_skipped": "replay" if mode == MODE_REPLAY and weather.get("bad") else None,
+            "evening_start_reason": engine.evening_start_reason(),
+            "morning_window": (
+                {"start": morning[0].isoformat(), "end": morning[1].isoformat()}
+                if morning
+                else None
+            ),
+        }
+
+    @property
+    def native_value(self) -> str:
+        """Return "modified" when the context changes tonight's behaviour."""
+        info = self._info()
+        modified = (
+            info["holiday_changed"]
+            or info["boost_applied"]
+            or info["evening_start_reason"] not in (None, "sunset", "time")
+        )
+        return "modified" if modified else "normal"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the context of tonight."""
+        info = self._info()
+        info.pop("holiday_changed")
+        return info
 
 
 class LastActionSensor(LumaEntity, SensorEntity):

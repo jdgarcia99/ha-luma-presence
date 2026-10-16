@@ -10,7 +10,7 @@
 
 Presence simulation for Home Assistant that makes an empty house look lived in. LumaPresence switches lights on and off in a random but believable way, works alongside your alarm, and learns how your home is really used.
 
-> **Status: phase 3a (v0.6.0).** Sun, Time, Replay and Dream modes, learning data collection, night sequences and built-in alarm control. Context (darkness, mornings, calendar, weather), covers, ambience and optional AI come next.
+> **Status: phase 3b (v0.7.0).** Sun, Time, Replay and Dream modes, learning data collection, night sequences, built-in alarm control, context (darkness, mornings, holidays, weather) and actuator verification. Covers, ambience, deterrence and optional AI come next.
 
 ## How it works
 
@@ -85,8 +85,9 @@ Setup walks through the same sections that the integration's **Configure** butto
 | Learning | Indoor floors, indoor areas, extra entities, excluded entities, *Automatically exclude indicator LEDs*, and *Learn only from human actions* (ignores changes made by automations and scripts) |
 | Learning preview | Read-only list of the entities that will be learned, and of the indicator LEDs left out automatically |
 | People and alarm | People, alarm panel, [alarm control](#alarm-control), and the learning margins: hours discarded before an absence, and hours learning stays paused after returning |
+| Context | [Darkness-based start, morning window, holiday calendar and weather](#context) (all optional, off by default) |
 | Night sequences | Delay between the steps of a route and time spent at its destination (see [Night sequences](#night-sequences)) |
-| Monitoring | Minutes a light may stay unavailable before an alert (see [Unavailable lights](#unavailable-lights)) |
+| Monitoring | Minutes a light may stay unavailable before an alert (see [Unavailable lights](#unavailable-lights)), where to send the morning report, and how long to wait for a light to [obey](#lights-that-do-not-obey) |
 
 ### Facades
 
@@ -132,7 +133,7 @@ Replay does not read the recorder. It plays back what LumaPresence has [learned]
 
 ### Window and source night
 
-Replay uses the same window as Sun mode: from sunset (plus the random start delay, if on) until the end time (or the late end time), and never after sunrise. Night sequences keep working in every mode.
+Replay uses the same window as Sun mode: from sunset or [darkness](#darkness-based-start) (plus the random start delay, if on) until the end time (or the late end time), and never after sunrise. Night sequences keep working in every mode.
 
 A night runs from 12:00 to 12:00 the next day, so it spans two learned days, and events are matched by clock time: a light switched on at 21:14 on the source night is switched on at about 21:14 tonight. At each window start Replay picks the source night, preferring:
 
@@ -281,6 +282,36 @@ Learning pauses while the simulation is enabled, the alarm is armed away or arme
 
 Turning the simulation on while someone is at home is treated as a **test**, not an absence (`simulation_test` in the `paused_reasons` attribute of `binary_sensor.luma_presence_learning_active`): what was observed until then is kept, and learning starts again as soon as the test ends, with no return margin. If everybody leaves or the alarm is armed away during the test, the normal absence rules apply from that moment. Without people configured, the simulation always counts as an absence. Light changes made by LumaPresence itself are never learned.
 
+## Context
+
+Everything in the **Context** section is optional and off by default; `sensor.luma_presence_context` shows what it changes tonight (`normal` or `modified`, with `night_type`, `night_type_source`, `weather_condition`, `bad_weather`, `boost_applied`, `evening_start_reason` and `morning_window`).
+
+### Darkness-based start
+
+With an *Illuminance sensor*, the evening window (Sun, Replay and Dream modes) starts when the illuminance has stayed below the *Darkness threshold* (50 lx by default) for 5 minutes, but never before *Earliest start* (60 minutes before sunset by default) nor after *Latest start* (30 minutes after sunset). If it is already dark at the earliest start, the window starts then; if it is not dark by the latest start, it starts anyway. Once an evening has started it does not move. Without readings, sunset is used. The random start delay still applies. `sensor.luma_presence_next_event` shows the reason in `start_reason`: `darkness`, `sunset`, `clamped_earliest`, `clamped_latest` or `sensor_unavailable`. The Dream model keeps measuring time from sunset.
+
+### Morning window
+
+With *Simulate dark mornings*, a second window runs from *Morning start* (06:30) until *Morning end* (08:30) or sunrise, whichever comes first, or earlier if the illuminance sensor has been above the threshold for 5 minutes. If the sun is already up at the morning start, there is no morning window that day. With *Only on workdays* (on by default) it skips Saturdays, Sundays and holidays. It runs only while the master switch is on.
+
+Sun and Time modes run the random loop with the usual limits; Replay plays the source night's events that fall inside the morning; Dream generates the morning with the same model (a second segment of the same night). Night sequences and learning are unaffected.
+
+### Holidays
+
+With a *Holiday calendar*, any all-day event (or event covering midday) marks a holiday. The night starting on day D is a **weekend** night when D+1 is a Saturday, Sunday **or holiday**: the eve of a Wednesday holiday is a weekend night, and the holiday's own night is a weekday night because Thursday is a workday. The same rule decides the workdays of the morning window and classifies the learned nights used by Replay and Dream. Past events are read once per range and cached for the day; if the calendar cannot be read, the plain day-of-the-week rule is used and the model sensor says so (`night_type_source: calendar_unavailable`).
+
+### Weather
+
+With a *Weather* entity, a night is a bad-weather night when, at the window start, the condition is rainy, pouring, snowy, snowy-rainy, lightning, lightning-rainy or hail, or it is below 8 °C. Then:
+
+- **Dream** boosts the start rate of the two rooms busiest in the evening by *Bad weather boost* (20 % by default) and uses that same boosted model to generate and to score the candidates, so these nights are not rejected as unrealistic (`context` attribute of the realism sensor).
+- **Sun and Time** keep one more light on (never above the maximum).
+- **Replay** plays a real night unchanged.
+
+## Lights that do not obey
+
+After every command, LumaPresence waits up to *Wait for a light to obey* (10 s by default; 0 turns it off) for the light to reach the requested state, without blocking anything else. If it does not, it retries once; if it still fails, the light is marked as failed for tonight: Replay and Dream (with *Map by room*) and night routes use another light of the same room, in room-mapping order, and Sun and Time simply choose another light. Failures per light appear in the morning report (`failures: {entity_id: count}`) and its notification. After 3 failures in one night a Repairs issue says the light does not obey (it reports itself available, so this is different from the unavailable-light issue); it disappears after a night without failures.
+
 ## Unavailable lights
 
 LumaPresence watches every simulation light, every route light, and the lights Replay uses tonight. When one stays `unavailable` or `unknown` for *Alert if a light is unavailable for (minutes)* (60 by default, in the **Monitoring** section of **Configure**; 0 turns it off), it raises a Repairs issue for that light, saying since when and what it is used for, and fires the `luma_presence_light_unavailable` event. As soon as the light reports any other state, the issue disappears and `luma_presence_light_available` is fired. After a restart, the clock starts again at startup.
@@ -317,7 +348,7 @@ The user interface is available in English and Spanish. Contributions for other 
 ## Roadmap
 
 - **Phase 2** (done): night sequences (v0.3.0), Replay mode (v0.4.0) and built-in alarm control (v0.5.0).
-- **Phase 3**: Dream mode core (v0.6.0); then context (darkness-based start, morning window, calendar and weather, actuator verification), covers, ambience and deterrence, and optional generative AI.
+- **Phase 3**: Dream mode core (v0.6.0), context and actuator verification (v0.7.0); then covers, ambience and deterrence, and optional generative AI.
 
 ## Development
 

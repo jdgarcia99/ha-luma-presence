@@ -20,6 +20,7 @@ from homeassistant.helpers.translation import async_get_translations
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, EVENT_ACTION, EVENT_NIGHT_REPORT
+from .dream import DreamEngine
 from .light_control import LightController
 from .models import LumaSettings
 from .plan import PlanPlayer, night_of
@@ -44,6 +45,7 @@ class NightReporter:
         controller: LightController,
         player: PlanPlayer,
         notify_target: str | None,
+        dream: DreamEngine | None = None,
     ) -> None:
         """Initialize the reporter."""
         self.hass = hass
@@ -51,6 +53,7 @@ class NightReporter:
         self._settings = settings
         self._controller = controller
         self._player = player
+        self._dream = dream
         self._notify_target = notify_target or None
         self._unsubs: list[CALLBACK_TYPE] = []
         self._reset()
@@ -59,7 +62,6 @@ class NightReporter:
         self._active = False
         self._lights: set[str] = set()
         self._switches = 0
-        self._failures_at_start = self._controller.failures
 
     @callback
     def async_start(self) -> None:
@@ -92,6 +94,9 @@ class NightReporter:
             self._reset()
             return
         payload = self.report()
+        # A new night starts: failures are reset, unresponsive issues of
+        # lights that obeyed all night are cleared.
+        self._controller.end_night()
         self.hass.bus.async_fire(EVENT_NIGHT_REPORT, payload)
         if self._notify_target:
             self.hass.async_create_task(
@@ -114,8 +119,14 @@ class NightReporter:
             "lights_switched": len(self._lights),
             "lights": sorted(self._lights),
             "switches": self._switches,
-            "failures": self._controller.failures - self._failures_at_start,
+            "failures": dict(self._controller.failure_counts),
+            "context": self._context(),
         }
+
+    def _context(self) -> list[str]:
+        if self._dream is None:
+            return []
+        return list(self._dream.status.get("context", []))
 
     async def _async_notify(self, payload: dict[str, Any]) -> None:
         translations = await async_get_translations(
@@ -130,7 +141,10 @@ class NightReporter:
             switches=payload["switches"],
             rooms=", ".join(payload["rooms"]) or "-",
             score="-" if payload["score"] is None else f"{payload['score']:.0f}",
-            failures=payload["failures"],
+            failures=", ".join(
+                f"{entity_id} ×{count}" for entity_id, count in payload["failures"].items()
+            )
+            or "0",
         )
         target = str(self._notify_target)
         try:

@@ -44,6 +44,7 @@ from .const import (
     STORE_VERSION,
     signal_update,
 )
+from .context import ContextProvider
 from .learning import LearningGate, parse_event
 from .light_control import LightController
 from .models import LumaSettings
@@ -169,8 +170,12 @@ def choose_source(
     min_events: int,
     previous: date | None,
     area_of: AreaResolver,
+    kind_of: Callable[[date], str] = day_type,
 ) -> SourceChoice:
-    """Pick the source night for tonight's window (on the night clock)."""
+    """Pick the source night for tonight's window (on the night clock).
+
+    `kind_of` gives the type of a night (holidays included).
+    """
     start, end = window
     any_data = any_exposure = False
     eligible: list[tuple[date, int]] = []
@@ -207,7 +212,7 @@ def choose_source(
         ),
         (
             REPLAY_SAME_DAY_TYPE,
-            lambda night: day_type(night) == day_type(tonight)
+            lambda night: kind_of(night) == kind_of(tonight)
             and (tonight - night).days <= REPLAY_SAME_DAY_TYPE_DAYS,
         ),
         (REPLAY_MOST_RECENT, lambda night: True),
@@ -358,6 +363,8 @@ class ReplayEngine:
         self._learning = learning
         self._on_lights = on_lights
         self._player = player
+        # Holidays and weather (set by the integration).
+        self.context: ContextProvider | None = None
         self.status: dict[str, Any] | None = None
         self._saved: dict[str, Any] = {}
         self._store: Store[dict[str, Any]] = Store(
@@ -393,6 +400,12 @@ class ReplayEngine:
 
         days = self._learning.days
         if self._saved.get("night") != night.isoformat():
+            if self.context is not None:
+                # Holidays of the last 4 weeks and tomorrow, for the night types.
+                await self.context.async_ensure_holidays(
+                    night - timedelta(days=REPLAY_SAME_DAY_TYPE_DAYS + 2),
+                    night + timedelta(days=2),
+                )
             # A new night: choose again. After a restart the saved choice is kept.
             saved = self._saved
             yesterday = (night - timedelta(days=1)).isoformat()
@@ -402,7 +415,13 @@ class ReplayEngine:
                 else None
             )
             choice = choose_source(
-                days, night, bounds, self._settings.replay_min_events, previous, area_of
+                days,
+                night,
+                bounds,
+                self._settings.replay_min_events,
+                previous,
+                area_of,
+                self.context.night_type if self.context is not None else day_type,
             )
             self._saved = {
                 "night": night.isoformat(),

@@ -36,17 +36,20 @@ from homeassistant.core import (
     callback,
 )
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    DEFAULT_VERIFY_TIMEOUT,
     DOMAIN,
     EVENT_ACTION,
     OWN_CONTEXT_MAXLEN,
     OWNER_SIMULATION,
     STORE_VERSION,
+    UNRESPONSIVE_FAILURES,
     signal_update,
 )
 
@@ -58,13 +61,23 @@ _IGNORED_STATES = (STATE_UNAVAILABLE, STATE_UNKNOWN)
 class LightController:
     """Switches lights for LumaPresence and tracks who owns them."""
 
-    def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry_id: str,
+        verify_timeout: float = DEFAULT_VERIFY_TIMEOUT,
+    ) -> None:
         """Initialize the controller."""
         self.hass = hass
         self._entry_id = entry_id
         self.last_action: dict[str, Any] | None = None
-        # Switch commands that failed since start (for the night report).
+        # Switch commands that failed since start.
         self.failures = 0
+        # Actuator verification: seconds to wait for the expected state (0: off).
+        self.verify_timeout = verify_timeout
+        self.failure_counts: dict[str, int] = {}  # tonight
+        self.failed_tonight: set[str] = set()
+        self._failure_listeners: list[Callable[[str, bool, str], None]] = []
 
         # entity_id -> (owner, context id of the change that turned it on)
         self._owned: dict[str, tuple[str, str]] = {}
@@ -116,6 +129,39 @@ class LightController:
             self._unsub_state = async_track_state_change_event(
                 self.hass, tracked, self._handle_light_change
             )
+
+    @callback
+    def add_failure_listener(
+        self, listener: Callable[[str, bool, str], None]
+    ) -> CALLBACK_TYPE:
+        """Call `listener(entity_id, turn_on, owner)` when a light does not obey."""
+        self._failure_listeners.append(listener)
+
+        @callback
+        def _remove() -> None:
+            if listener in self._failure_listeners:
+                self._failure_listeners.remove(listener)
+
+        return _remove
+
+    @callback
+    def end_night(self) -> dict[str, int]:
+        """Return tonight's failures per light and start a new night.
+
+        Unresponsive-light issues of lights that had no failure are cleared.
+        """
+        counts = dict(self.failure_counts)
+        prefix = f"light_unresponsive_{self._entry_id}_"
+        for domain, issue_id in list(ir.async_get(self.hass).issues):
+            if (
+                domain == DOMAIN
+                and issue_id.startswith(prefix)
+                and not counts.get(issue_id.removeprefix(prefix))
+            ):
+                ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+        self.failure_counts.clear()
+        self.failed_tonight.clear()
+        return counts
 
     async def async_shutdown(self) -> None:
         """Stop following the lights and save ownership."""
@@ -218,15 +264,93 @@ class LightController:
             )
         except HomeAssistantError as err:
             _LOGGER.warning("Could not switch %s: %s", entity_id, err)
-            self.failures += 1
-            if turn_on:
-                self._owned.pop(entity_id, None)
+            self._failed(entity_id, turn_on, owner)
             return False
         if not turn_on:
             self._owned.pop(entity_id, None)
         self.record(entity_id, STATE_ON if turn_on else STATE_OFF, **extra)
         self._save()
+        if self.verify_timeout > 0:
+            # Never blocks the caller: verification runs in its own task.
+            self.hass.async_create_background_task(
+                self._async_verify(entity_id, turn_on, owner),
+                f"{DOMAIN}_verify_{entity_id}",
+            )
         return True
+
+    async def _async_verify(self, entity_id: str, turn_on: bool, owner: str) -> None:
+        """Wait for the expected state; retry once; then count a failure."""
+        expected = STATE_ON if turn_on else STATE_OFF
+        if await self._async_wait_for(entity_id, expected):
+            return
+        context = Context()
+        self._remember_context(context.id)
+        try:
+            await self.hass.services.async_call(
+                "homeassistant",
+                SERVICE_TURN_ON if turn_on else SERVICE_TURN_OFF,
+                {ATTR_ENTITY_ID: entity_id},
+                blocking=True,
+                context=context,
+            )
+        except HomeAssistantError:
+            pass
+        else:
+            if await self._async_wait_for(entity_id, expected):
+                return
+        _LOGGER.warning("%s did not turn %s", entity_id, expected)
+        self._failed(entity_id, turn_on, owner)
+
+    async def _async_wait_for(self, entity_id: str, expected: str) -> bool:
+        reached = asyncio.Event()
+
+        @callback
+        def _changed(event: Event[EventStateChangedData]) -> None:
+            new = event.data["new_state"]
+            if new is not None and new.state == expected:
+                reached.set()
+
+        unsub = async_track_state_change_event(self.hass, [entity_id], _changed)
+        try:
+            state = self.hass.states.get(entity_id)
+            if state is not None and state.state == expected:
+                return True
+            async with asyncio.timeout(self.verify_timeout):
+                await reached.wait()
+            return True
+        except TimeoutError:
+            return False
+        finally:
+            unsub()
+
+    @callback
+    def _failed(self, entity_id: str, turn_on: bool, owner: str) -> None:
+        """A light did not obey: count it, raise an issue after 3, tell listeners."""
+        self.failures += 1
+        count = self.failure_counts[entity_id] = self.failure_counts.get(entity_id, 0) + 1
+        self.failed_tonight.add(entity_id)
+        if turn_on and self.owner_of(entity_id) is not None:
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state != STATE_ON:
+                self._owned.pop(entity_id, None)
+                self._save()
+        if count >= UNRESPONSIVE_FAILURES:
+            state = self.hass.states.get(entity_id)
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                f"light_unresponsive_{self._entry_id}_{entity_id}",
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="light_unresponsive",
+                translation_placeholders={
+                    "entity": state.name if state is not None else entity_id,
+                    "entity_id": entity_id,
+                    "failures": str(count),
+                },
+            )
+        for listener in list(self._failure_listeners):
+            listener(entity_id, turn_on, owner)
 
     async def async_turn_off_gradually(
         self, lights: list[str], max_interval: float, **extra: Any

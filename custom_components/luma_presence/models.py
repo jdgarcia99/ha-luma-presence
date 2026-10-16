@@ -22,6 +22,7 @@ from .const import (
 
 if TYPE_CHECKING:
     from .alarm import AlarmController
+    from .context import ContextProvider
     from .dream import DreamEngine
     from .engine import SimulationEngine
     from .learning import LearningGate
@@ -144,6 +145,7 @@ class LumaRuntime:
     player: PlanPlayer | None = None
     dream: DreamEngine | None = None
     reporter: NightReporter | None = None
+    context: ContextProvider | None = None
 
     async def async_setting_changed(self, key: str) -> None:
         """React to a setting changed from one of the config entities."""

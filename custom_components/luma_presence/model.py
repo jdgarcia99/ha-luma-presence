@@ -14,8 +14,8 @@ by recency; atypical nights count less.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 import math
 from statistics import median
@@ -238,6 +238,8 @@ class RoomModel:
 
     built_at: datetime
     day_types: dict[str, DayTypeModel]
+    # Where the night types came from (calendar / weekday_rule / calendar_unavailable).
+    night_type_source: str | None = None
 
     def valid_nights(self, kind: str) -> int:
         """Valid nights used for a day type."""
@@ -367,14 +369,60 @@ def build_day_type(nights: list[NightRooms], today: date, half_life: float) -> D
 
 
 def build_model(
-    nights: list[NightRooms], today: date, half_life: float, built_at: datetime
+    nights: list[NightRooms],
+    today: date,
+    half_life: float,
+    built_at: datetime,
+    kinds: Mapping[date, str] | None = None,
+    night_type_source: str | None = None,
 ) -> RoomModel:
-    """Build the model from the valid learned nights."""
+    """Build the model from the valid learned nights.
+
+    `kinds` gives each night's type (holidays included); else the plain rule.
+    """
     valid = [n for n in nights if n.coverage() >= REPLAY_MIN_COVERAGE]
+
+    def kind_of(night: date) -> str:
+        return kinds[night] if kinds and night in kinds else day_type(night)
+
     return RoomModel(
         built_at=built_at,
         day_types={
-            kind: build_day_type([n for n in valid if day_type(n.night) == kind], today, half_life)
+            kind: build_day_type([n for n in valid if kind_of(n.night) == kind], today, half_life)
             for kind in DAY_TYPES
         },
+        night_type_source=night_type_source,
     )
+
+
+def boost_model(model: DayTypeModel, boost: float, offset: float) -> DayTypeModel:
+    """Copy of a model whose two rooms busiest in the evening start more often."""
+    if boost <= 0 or not model.rooms:
+        return model
+
+    def evening_occupancy(stats: RoomStats) -> float:
+        return sum(
+            value
+            for slot, value in enumerate(stats.occupancy)
+            if period_of((offset / 60 + slot * SLOT_MIN + 12 * 60) % (24 * 60)) == EVENING
+        )
+
+    busiest = sorted(model.rooms, key=lambda r: (-evening_occupancy(model.rooms[r]), r))[:2]
+    rooms = dict(model.rooms)
+    concurrency = list(model.concurrency)
+    factor = 1 + boost
+    for room in busiest:
+        stats = rooms[room]
+        # More starts mean more visits and more occupied time: the expected
+        # values the score uses change with the rate, so boosted nights are
+        # judged against what a bad-weather night looks like.
+        occupancy = [min(value * factor, 1.0) for value in stats.occupancy]
+        for slot, (old, new) in enumerate(zip(stats.occupancy, occupancy, strict=True)):
+            concurrency[slot] += new - old
+        rooms[room] = replace(
+            stats,
+            start_rate=[min(rate * factor, 1.0) for rate in stats.start_rate],
+            starts=[value * factor for value in stats.starts],
+            occupancy=occupancy,
+        )
+    return replace(model, rooms=rooms, concurrency=concurrency)

@@ -97,6 +97,54 @@ CONF_DREAM_MAX_SIMILARITY: Final = "dream_max_similarity"
 CONF_REPORT_NOTIFY: Final = "report_notify"
 DEFAULT_DREAM_CANDIDATES: Final = 20
 DEFAULT_DREAM_MAX_SIMILARITY: Final = 0.7
+
+# Context (v0.7.0): darkness, morning window, holidays, weather
+CONF_DARKNESS_SENSOR: Final = "darkness_sensor"
+CONF_DARKNESS_THRESHOLD: Final = "darkness_threshold_lx"
+CONF_DARKNESS_EARLIEST: Final = "darkness_earliest_min"
+CONF_DARKNESS_LATEST: Final = "darkness_latest_min"
+CONF_MORNING_ENABLED: Final = "morning_enabled"
+CONF_MORNING_START: Final = "morning_start"
+CONF_MORNING_END: Final = "morning_end"
+CONF_MORNING_WORKDAYS_ONLY: Final = "morning_workdays_only"
+CONF_HOLIDAY_CALENDAR: Final = "holiday_calendar"
+CONF_WEATHER_ENTITY: Final = "weather_entity"
+CONF_BAD_WEATHER_BOOST: Final = "bad_weather_boost"
+CONF_VERIFY_TIMEOUT: Final = "verify_timeout"
+DEFAULT_DARKNESS_THRESHOLD: Final = 50.0
+DEFAULT_DARKNESS_EARLIEST: Final = -60
+DEFAULT_DARKNESS_LATEST: Final = 30
+DEFAULT_MORNING_ENABLED: Final = False
+DEFAULT_MORNING_START: Final = "06:30:00"
+DEFAULT_MORNING_END: Final = "08:30:00"
+DEFAULT_MORNING_WORKDAYS_ONLY: Final = True
+DEFAULT_BAD_WEATHER_BOOST: Final = 20
+DEFAULT_VERIFY_TIMEOUT: Final = 10
+DARKNESS_CONFIRM: Final = timedelta(minutes=5)
+BAD_WEATHER_CONDITIONS: Final = frozenset(
+    {"rainy", "pouring", "snowy", "snowy-rainy", "lightning", "lightning-rainy", "hail"}
+)
+COLD_BELOW_C: Final = 8.0
+UNRESPONSIVE_FAILURES: Final = 3
+# Why the evening window starts when it does
+START_DARKNESS: Final = "darkness"
+START_SUNSET: Final = "sunset"
+START_CLAMPED_EARLIEST: Final = "clamped_earliest"
+START_CLAMPED_LATEST: Final = "clamped_latest"
+START_SENSOR_UNAVAILABLE: Final = "sensor_unavailable"
+START_MORNING: Final = "morning"
+START_REASONS: Final = [
+    START_DARKNESS,
+    START_SUNSET,
+    START_CLAMPED_EARLIEST,
+    START_CLAMPED_LATEST,
+    START_SENSOR_UNAVAILABLE,
+    START_MORNING,
+]
+# Where tonight's night type comes from
+NIGHT_TYPE_CALENDAR: Final = "calendar"
+NIGHT_TYPE_RULE: Final = "weekday_rule"
+NIGHT_TYPE_CALENDAR_UNAVAILABLE: Final = "calendar_unavailable"
 # Why tonight's Dream plan is what it is, or why Dream fell back
 DREAM_BEST: Final = "best_candidate"
 DREAM_LOW_SCORE: Final = "low_score"

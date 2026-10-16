@@ -11,7 +11,7 @@ never toggles them.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import date, datetime, timedelta
 import logging
 import random
@@ -103,6 +103,10 @@ class SequenceEngine:
         self._task: asyncio.Task[None] | None = None
         self._off_task: asyncio.Task[None] | None = None
         self._last_route_id: str | None = None
+        # Same-room fallback for route lights that do not obey (set by the
+        # integration), and the stand-ins used by the running route.
+        self.alternatives: Callable[[str], list[str]] | None = None
+        self._stand_ins: list[str] = []
         self._jitter: dict[date, float] = {}
         self._unsub_run: CALLBACK_TYPE | None = None
         self._unsub_end: CALLBACK_TYPE | None = None
@@ -129,6 +133,7 @@ class SequenceEngine:
     async def async_start(self) -> None:
         """Start scheduling once Home Assistant is running."""
         self._unsubs.append(self._engine.add_enabled_listener(self._handle_enabled))
+        self._unsubs.append(self._controller.add_failure_listener(self._handle_failure))
         self._started = True
         # A route interrupted by a restart is not resumed: its lights go off.
         if self._controller.owned_on(OWNER_SEQUENCE):
@@ -327,6 +332,7 @@ class SequenceEngine:
     async def _async_run_route(self, route: Route) -> None:
         controller = self._controller
         controller.lock(route.lights)
+        self._stand_ins = []
         try:
             controller.record(None, "sequence_started", route=route.name)
             outward = [
@@ -346,7 +352,13 @@ class SequenceEngine:
             self._set_step(STEP_DWELL)
             await _sleep(random.uniform(*self._dwell) * 60)
 
-            back = [route.destination, *reversed(route.path), route.origin]
+            # Lights standing in for ones that did not obey go off first.
+            back = [
+                *self._stand_ins,
+                route.destination,
+                *reversed(route.path),
+                route.origin,
+            ]
             self._set_step(STEP_RETURN)
             for index, light in enumerate(back):
                 if index:
@@ -358,11 +370,46 @@ class SequenceEngine:
         except Exception:  # never leave the lights locked
             _LOGGER.exception("Unexpected error in night route %s", route.name)
         finally:
-            controller.unlock(route.lights)
+            controller.unlock([*route.lights, *self._stand_ins])
+            self._stand_ins = []
             if self._task is asyncio.current_task():
                 self._task = None
                 self.route = self.step = None
             self._notify()
+
+    @callback
+    def _handle_failure(self, entity_id: str, turn_on: bool, owner: str) -> None:
+        """A route light did not turn on: light another one of its room."""
+        route = self.route
+        if (
+            route is None
+            or not self.running
+            or owner != OWNER_SEQUENCE
+            or not turn_on
+            or entity_id not in route.lights
+            or self.alternatives is None
+        ):
+            return
+        for alternative in self.alternatives(entity_id):
+            state = self.hass.states.get(alternative)
+            if (
+                alternative in route.lights
+                or alternative in self._stand_ins
+                or alternative in self._controller.failed_tonight
+                or self._controller.is_locked(alternative)
+                or state is None
+                or state.state != STATE_OFF
+            ):
+                continue
+            self._controller.lock([alternative])
+            self._stand_ins.append(alternative)
+            self.hass.async_create_task(
+                self._controller.async_switch(
+                    alternative, True, OWNER_SEQUENCE, route=route.name, original=entity_id
+                ),
+                f"{DOMAIN}_sequence_fallback_{self._entry_id}",
+            )
+            return
 
     async def _step_wait(self) -> None:
         await _sleep(random.uniform(*self._step_delay))

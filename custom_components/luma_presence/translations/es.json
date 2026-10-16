@@ -87,6 +87,7 @@
           "learning": "Aprendizaje",
           "learning_preview": "Vista previa del aprendizaje",
           "presence": "Personas y alarma",
+          "context": "Contexto",
           "sequences": "Secuencias nocturnas",
           "dream": "Dream",
           "monitoring": "Supervisión",
@@ -179,11 +180,13 @@
         "description": "Crea un aviso en Reparaciones, y lanza el evento `luma_presence_light_unavailable`, cuando una luz de simulación o de un recorrido sigue sin estar disponible.",
         "data": {
           "unavailable_alert_minutes": "Avisar si una luz no está disponible durante (minutos)",
-          "report_notify": "Enviar el informe de la mañana a"
+          "report_notify": "Enviar el informe de la mañana a",
+          "verify_timeout": "Esperar a que una luz obedezca (segundos)"
         },
         "data_description": {
           "unavailable_alert_minutes": "0 desactiva los avisos.",
-          "report_notify": "Una entidad de notificación (notify.mi_movil) o un servicio (notify.mobile_app_mi_movil). Déjalo vacío para lanzar solo el evento luma_presence_night_report."
+          "report_notify": "Una entidad de notificación (notify.mi_movil) o un servicio (notify.mobile_app_mi_movil). Déjalo vacío para lanzar solo el evento luma_presence_night_report.",
+          "verify_timeout": "Tras cada orden, LumaPresence comprueba que la luz llega al estado pedido, reintenta una vez y, si no, usa otra luz de la misma estancia. 0 desactiva la comprobación."
         }
       },
       "dream": {
@@ -197,6 +200,34 @@
           "dream_candidates": "Noches que se generan antes de elegir la más realista.",
           "dream_max_similarity": "Se descarta una candidata que se parezca más que esto a alguna de las 7 últimas noches (proporción de las mismas estancias a las mismas horas)."
         }
+      },
+      "context": {
+        "title": "Contexto",
+        "description": "Contexto opcional para la simulación: empezar la noche cuando oscurece, simular una mañana oscura antes del trabajo, tratar los festivos como fines de semana y añadir luz cuando hace mal tiempo.",
+        "data": {
+          "darkness_sensor": "Sensor de iluminancia",
+          "darkness_threshold_lx": "Umbral de oscuridad",
+          "darkness_earliest_min": "Inicio más temprano (minutos desde la puesta de sol)",
+          "darkness_latest_min": "Inicio más tardío (minutos desde la puesta de sol)",
+          "morning_enabled": "Simular mañanas oscuras",
+          "morning_start": "Inicio de la mañana",
+          "morning_end": "Fin de la mañana",
+          "morning_workdays_only": "Solo en días laborables",
+          "holiday_calendar": "Calendario de festivos",
+          "weather_entity": "Tiempo",
+          "bad_weather_boost": "Refuerzo por mal tiempo"
+        },
+        "data_description": {
+          "darkness_sensor": "La noche empieza cuando lleva 5 minutos por debajo del umbral, entre el inicio más temprano y el más tardío. Sin lecturas, a la puesta de sol.",
+          "darkness_threshold_lx": "Por debajo de esta iluminancia se considera oscuro.",
+          "darkness_earliest_min": "Los valores negativos son antes de la puesta de sol.",
+          "darkness_latest_min": "Si para entonces no ha oscurecido, la noche empieza igualmente.",
+          "morning_enabled": "Luces encendidas antes del trabajo mientras aún es de noche: desde el inicio de la mañana hasta su fin o hasta la salida del sol, lo que llegue antes.",
+          "morning_workdays_only": "Ni sábados, ni domingos, ni festivos.",
+          "holiday_calendar": "Los eventos de día completo (o que cubren el mediodía) son festivos: la noche anterior a uno es una noche de fin de semana.",
+          "weather_entity": "Lluvia, nieve, tormenta, granizo o menos de 8 °C cuentan como mal tiempo.",
+          "bad_weather_boost": "Dream: las dos estancias con más uso por la tarde empiezan esta proporción más a menudo. Sol y Horario: una luz más encendida."
+        }
       }
     },
     "error": {
@@ -204,7 +235,9 @@
       "facade_not_subset": "Las luces delanteras y traseras también deben ser luces de simulación.",
       "facade_overlap": "Una luz no puede ser delantera y trasera a la vez.",
       "alarm_required": "Selecciona el panel de alarma para controlar la simulación con él.",
-      "activate_states_required": "Selecciona al menos un estado de la alarma."
+      "activate_states_required": "Selecciona al menos un estado de la alarma.",
+      "darkness_range": "El inicio más tardío no puede ser anterior al más temprano.",
+      "morning_range": "El fin de la mañana debe ser posterior a su inicio."
     }
   },
   "config_subentries": {
@@ -414,7 +447,21 @@
         }
       },
       "next_event": {
-        "name": "Próximo evento"
+        "name": "Próximo evento",
+        "state_attributes": {
+          "start_reason": {
+            "name": "Inicio de la noche",
+            "state": {
+              "darkness": "Oscuridad",
+              "sunset": "Puesta de sol",
+              "clamped_earliest": "Inicio más temprano (ya era de noche)",
+              "clamped_latest": "Inicio más tardío",
+              "sensor_unavailable": "Puesta de sol (sensor no disponible)",
+              "morning": "Ventana de mañana",
+              "time": "Hora de inicio"
+            }
+          }
+        }
       },
       "last_action": {
         "name": "Última acción"
@@ -490,6 +537,42 @@
       },
       "model": {
         "name": "Modelo de Dream"
+      },
+      "context": {
+        "name": "Contexto",
+        "state": {
+          "normal": "Normal",
+          "modified": "Modificado"
+        },
+        "state_attributes": {
+          "night_type": {
+            "name": "Tipo de noche",
+            "state": {
+              "weekday": "Noche entre semana",
+              "weekend": "Noche de fin de semana"
+            }
+          },
+          "night_type_source": {
+            "name": "Origen del tipo de noche",
+            "state": {
+              "calendar": "Calendario de festivos",
+              "weekday_rule": "Día de la semana",
+              "calendar_unavailable": "Calendario no disponible (día de la semana)"
+            }
+          },
+          "evening_start_reason": {
+            "name": "Inicio de la noche",
+            "state": {
+              "darkness": "Oscuridad",
+              "sunset": "Puesta de sol",
+              "clamped_earliest": "Inicio más temprano (ya era de noche)",
+              "clamped_latest": "Inicio más tardío",
+              "sensor_unavailable": "Puesta de sol (sensor no disponible)",
+              "morning": "Ventana de mañana",
+              "time": "Hora de inicio"
+            }
+          }
+        }
       }
     }
   },
@@ -616,6 +699,10 @@
     "light_unavailable": {
       "title": "LumaPresence: «{entity}» no está disponible",
       "description": "{entity} (`{entity_id}`) no está disponible desde {since}. LumaPresence la usa como: {roles}. Mientras no esté disponible, la simulación no puede encenderla ni apagarla. Revisa el dispositivo; este aviso desaparece en cuanto la luz vuelva a estar disponible."
+    },
+    "light_unresponsive": {
+      "title": "LumaPresence: «{entity}» no obedece",
+      "description": "{entity} (`{entity_id}`) indica que está disponible, pero esta noche no ha llegado al estado pedido {failures} veces, ni siquiera tras reintentarlo. Revisa el dispositivo o su integración. Este aviso desaparece tras una noche sin fallos."
     }
   },
   "exceptions": {
@@ -635,7 +722,7 @@
       "message": "Dream todavía no puede planificar esta noche ({reason}). Necesita suficientes noches aprendidas del tipo de día de esta noche."
     },
     "night_report": {
-      "message": "Anoche ({mode}): {lights} luces conmutadas {switches} veces. Estancias: {rooms}. Realismo: {score}. Fallos: {failures}."
+      "message": "Anoche ({mode}): {lights} luces conmutadas {switches} veces. Estancias: {rooms}. Realismo: {score}. Luces que no obedecieron: {failures}."
     }
   }
 }

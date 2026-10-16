@@ -12,6 +12,7 @@ starts, so clock times are kept across DST changes.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Container
 from dataclasses import asdict, dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 import logging
@@ -73,13 +74,23 @@ WEEKEND = "weekend"
 DAY_TYPES = (WEEKDAY, WEEKEND)
 
 
-def day_type(night: date) -> str:
-    """Day type of a night, shared by Replay and Dream.
+def day_type(night: date, holidays: Container[date] | None = None) -> str:
+    """Day type of a night, shared by Replay, Dream and the morning window.
 
-    Weekday nights start Sunday to Thursday (a working day follows);
-    weekend nights start Friday and Saturday.
+    The night starting on day D is a weekend night when D+1 is Saturday,
+    Sunday or a holiday; otherwise a weekday night (a working day follows).
+    Without holidays: weekday nights start Sunday to Thursday, weekend
+    nights Friday and Saturday.
     """
-    return WEEKEND if night.weekday() in (4, 5) else WEEKDAY
+    following = night + timedelta(days=1)
+    if following.weekday() in (5, 6) or (holidays is not None and following in holidays):
+        return WEEKEND
+    return WEEKDAY
+
+
+def is_workday(day: date, holidays: Container[date] | None = None) -> bool:
+    """A workday is neither Saturday, Sunday nor a holiday (same rule as the night type)."""
+    return day_type(day - timedelta(days=1), holidays) == WEEKDAY
 
 
 def clock_text(seconds: float) -> str:
@@ -289,11 +300,20 @@ class PlanPlayer:
         self._unsub_unlock: CALLBACK_TYPE = controller.add_unlock_listener(
             self._handle_unlock
         )
+        self._unsub_failure: CALLBACK_TYPE = controller.add_failure_listener(
+            self._handle_failure
+        )
+        # Same-room fallback (set by the integration): other lights of a
+        # light's room, in room-mapping order, and whether map-by-room is on.
+        self.alternatives: Callable[[str], list[str]] | None = None
+        self.map_by_room: Callable[[], bool] = lambda: True
+        self._remap: dict[str, str] = {}
 
     @callback
     def async_shutdown(self) -> None:
-        """Stop listening to unlocks."""
+        """Stop listening to unlocks and failures."""
         self._unsub_unlock()
+        self._unsub_failure()
 
     @property
     def shown(self) -> NightPlan | None:
@@ -320,6 +340,7 @@ class PlanPlayer:
         self._mode = plan.source
         self._active = True
         self._pending.clear()
+        self._remap.clear()
         try:
             # At the window start, or after a restart: reconcile the current state.
             now = max(
@@ -344,6 +365,9 @@ class PlanPlayer:
             self._pending.clear()
 
     async def _async_apply(self, target: str, desired: str, original: str | None) -> None:
+        if target in self._remap:
+            original = original or target
+            target = self._remap[target]
         state = self.hass.states.get(target)
         if state is None or state.state not in (STATE_ON, STATE_OFF):
             return  # unavailable now: skip
@@ -366,6 +390,37 @@ class PlanPlayer:
             )
         ):
             await self._controller.async_switch(target, False, **extra)
+
+    @callback
+    def _handle_failure(self, entity_id: str, turn_on: bool, owner: str) -> None:
+        """A light did not obey: use another light of the same room tonight."""
+        plan = self.plan
+        if (
+            not self._active
+            or plan is None
+            or owner != OWNER_SIMULATION
+            or self.alternatives is None
+            or not self.map_by_room()
+            or entity_id in self._remap
+        ):
+            return
+        for alternative in self.alternatives(entity_id):
+            state = self.hass.states.get(alternative)
+            if (
+                alternative in self._controller.failed_tonight
+                or alternative in self._remap.values()
+                or self._controller.is_locked(alternative)
+                or state is None
+                or state.state not in (STATE_ON, STATE_OFF)
+            ):
+                continue
+            self._remap[entity_id] = alternative
+            _LOGGER.info("%s did not obey: using %s tonight", entity_id, alternative)
+            self.hass.async_create_task(
+                self._async_apply(alternative, STATE_ON if turn_on else STATE_OFF, entity_id),
+                f"{DOMAIN}_plan_fallback_{self._entry_id}",
+            )
+            return
 
     @callback
     def _handle_unlock(self, entities: list[str]) -> None:

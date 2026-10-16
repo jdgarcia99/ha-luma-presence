@@ -480,6 +480,6 @@ async def test_morning_report(
     assert report["lights_switched"] >= 1
     assert "light.bedroom" in report["lights"]
     assert report["switches"] >= 2  # on, then off at the window end
-    assert report["failures"] == 0
+    assert report["failures"] == {}  # per light since v0.7.0
     assert len(sent) == 1
     assert "sun" in sent[0].data["message"]

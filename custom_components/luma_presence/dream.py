@@ -55,6 +55,7 @@ from .const import (
     STORE_VERSION,
     signal_update,
 )
+from .context import ContextProvider
 from .learning import LearningGate
 from .model import (
     DAY_TYPES,
@@ -64,6 +65,7 @@ from .model import (
     DayTypeModel,
     RoomModel,
     RoomStats,
+    boost_model,
     build_model,
     day_type,
     night_rooms,
@@ -74,6 +76,7 @@ from .model import (
 )
 from .models import LumaSettings
 from .plan import (
+    NIGHT_START,
     NightPlan,
     PlanPlayer,
     Timeline,
@@ -301,8 +304,14 @@ def make_candidates(
     base_seed: int,
     count: int,
     history: list[set[tuple[str, int]]],
+    boost: float = 0.0,
 ) -> list[Candidate]:
-    """Generate, score and compare `count` candidates (pure: runs in an executor)."""
+    """Generate, score and compare `count` candidates (pure: runs in an executor).
+
+    With a weather `boost`, the same boosted model generates and scores the
+    candidates, so bad-weather nights are not rejected as unrealistic.
+    """
+    model = boost_model(model, boost, offset)
     period_at = period_function(offset)
     learned = learned_durations(model)
     candidates: list[Candidate] = []
@@ -336,10 +345,19 @@ def model_from_nights(
     today: date,
     half_life: float,
     built_at: datetime,
+    kinds: dict[date, str] | None = None,
+    night_type_source: str | None = None,
 ) -> RoomModel:
     """Turn learned nights (with their sun times) into the model (pure)."""
     rooms = [night_rooms(data, sunset, sunrise, room_key) for data, sunset, sunrise in nights]
-    return build_model([r for r in rooms if r is not None], today, half_life, built_at)
+    return build_model(
+        [r for r in rooms if r is not None],
+        today,
+        half_life,
+        built_at,
+        kinds,
+        night_type_source,
+    )
 
 
 def choose_candidate(
@@ -383,6 +401,8 @@ class DreamEngine:
         self._saved: dict[str, Any] = {}
         self._unsub: CALLBACK_TYPE | None = None
         self._rebuilds = 0  # only the latest rebuild may set the model
+        # Holidays and weather (set by the integration).
+        self.context: ContextProvider | None = None
         self._store: Store[dict[str, Any]] = Store(
             hass, STORE_VERSION, f"{DOMAIN}.{entry_id}.dream"
         )
@@ -457,12 +477,23 @@ class DreamEngine:
             if (sun := self._sun(night)) is None:
                 continue
             nights.append((data, *sun))
+        kinds: dict[date, str] = {}
+        source = None
+        if self.context is not None and nights:
+            # Learned nights get the same holiday-aware type as tonight.
+            await self.context.async_ensure_holidays(
+                min(data.night for data, _, _ in nights), today + timedelta(days=2)
+            )
+            kinds = {data.night: self.context.night_type(data.night) for data, _, _ in nights}
+            source = self.context.night_type_source
         model = await self.hass.async_add_executor_job(
             model_from_nights,
             nights,
             today,
             self._settings.dream_half_life,
             dt_util.utcnow(),
+            kinds,
+            source,
         )
         if rebuild == self._rebuilds:  # a newer rebuild wins over an older one
             self.model = model
@@ -481,8 +512,18 @@ class DreamEngine:
             to_night_seconds(dt_util.as_local(window[0]), night),
             to_night_seconds(dt_util.as_local(window[1]), night),
         )
-        kind = day_type(night)
-        saved_plan = self._saved.get("plan")
+        # The morning window is a second segment of the same night.
+        morning = dt_util.as_local(window[0]).time() < NIGHT_START
+        key = "morning_plan" if morning else "plan"
+        context: list[str] = ["morning"] if morning else []
+        if self.context is not None:
+            await self.context.async_ensure_holidays(night - timedelta(days=1), night + timedelta(days=2))
+            kind = self.context.night_type(night)
+            if kind != day_type(night):
+                context.append("holiday")
+        else:
+            kind = day_type(night)
+        saved_plan = self._saved.get(key)
         if not preview and saved_plan and saved_plan.get("night") == night.isoformat():
             # After a restart: tonight's plan was already chosen.
             plan = NightPlan.from_dict(saved_plan)
@@ -497,7 +538,12 @@ class DreamEngine:
         nights = model.valid_nights(kind)
         if day_model is None or nights < self._settings.dream_min_days:
             self._set_status(
-                None, DREAM_NOT_ENOUGH_NIGHTS, kind, nights=nights, preview=preview
+                None,
+                DREAM_NOT_ENOUGH_NIGHTS,
+                kind,
+                nights=nights,
+                preview=preview,
+                context=context,
             )
             return None
         if (sun := self._sun(night)) is None:
@@ -515,6 +561,10 @@ class DreamEngine:
             {(room, slot) for room, slot in item["slots"]}
             for item in self._saved.get("history", [])
         ]
+        boost = 0.0
+        if self.context is not None and self.context.weather()["bad"] and self.context.boost > 0:
+            boost = self.context.boost
+            context.append("bad_weather")
         candidates = await self.hass.async_add_executor_job(
             make_candidates,
             day_model,
@@ -524,6 +574,7 @@ class DreamEngine:
             random.getrandbits(32),
             int(self._config.get(CONF_DREAM_CANDIDATES, DEFAULT_DREAM_CANDIDATES)),
             history,
+            boost,
         )
         chosen, reason = choose_candidate(
             candidates,
@@ -541,14 +592,19 @@ class DreamEngine:
             candidates=len(candidates),
             similarity_max=round(chosen.similarity, 2),
             preview=preview,
+            context=context,
+            boost=boost,
         )
         if not preview:
-            history_items = [
-                *self._saved.get("history", []),
-                {"night": night.isoformat(), "slots": sorted(room_slots(chosen.spans))},
-            ][-HISTORY_NIGHTS:]
+            history_items = list(self._saved.get("history", []))
+            if not morning:  # novelty compares evenings
+                history_items = [
+                    *history_items,
+                    {"night": night.isoformat(), "slots": sorted(room_slots(chosen.spans))},
+                ][-HISTORY_NIGHTS:]
             self._saved = {
-                "plan": plan.as_dict(),
+                **self._saved,
+                key: plan.as_dict(),
                 "history": history_items,
                 "status": self.status,
             }
@@ -667,6 +723,8 @@ class DreamEngine:
             "candidates": extra.get("candidates", 0),
             "similarity_max": extra.get("similarity_max"),
             "nights": extra.get("nights"),
+            "context": extra.get("context", []),
+            "boost_applied": bool(extra.get("boost")),
         }
         if preview:
             self.preview_status = status
@@ -690,7 +748,8 @@ class DreamEngine:
             return {"day_type": kind, "hours": hours, "rooms": [], "real": [], "dreamed": []}
         rooms = sorted(day_model.rooms, key=self._room_name)
         night = dt_util.now().date()
-        while day_type(night) != kind:
+        night_type = self.context.night_type if self.context is not None else day_type
+        while night_type(night) != kind:
             night += timedelta(days=1)
         dreamed = [[0.0] * 24 for _ in rooms]
         if (sun := self._sun(night)) is not None:
@@ -714,6 +773,7 @@ class DreamEngine:
             return {}
         return {
             "built_at": model.built_at.isoformat(),
+            "night_type_source": model.night_type_source,
             **{
                 kind: {
                     "nights": len(dm.nights),

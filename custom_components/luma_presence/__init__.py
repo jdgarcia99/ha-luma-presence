@@ -35,6 +35,7 @@ from .const import (
     CONF_ALARM,
     CONF_ALARM_ACTIVATE_STATES,
     CONF_ALARM_CONTROL,
+    CONF_FRONT_LIGHTS,
     CONF_LEARN_AREAS,
     CONF_LEARN_EXCLUDE,
     CONF_LEARN_EXTRA,
@@ -44,9 +45,11 @@ from .const import (
     CONF_REAR_LIGHTS,
     CONF_REPORT_NOTIFY,
     CONF_UNAVAILABLE_ALERT_MINUTES,
+    CONF_VERIFY_TIMEOUT,
     DEFAULT_ALARM_ACTIVATE_STATES,
     DEFAULT_ALARM_CONTROL,
     DEFAULT_UNAVAILABLE_ALERT_MINUTES,
+    DEFAULT_VERIFY_TIMEOUT,
     DOMAIN,
     ORIGIN_SERVICE,
     SERVICE_DREAM_PREVIEW,
@@ -58,6 +61,7 @@ from .const import (
     STOP_BEHAVIORS,
     SUBENTRY_ROUTE,
 )
+from .context import ContextProvider
 from .dream import DreamEngine
 from .engine import SimulationEngine
 from .learning import LearningGate
@@ -75,6 +79,7 @@ from .monitor import (
 from .plan import PlanPlayer
 from .replay import ReplayEngine
 from .report import NightReporter
+from .scope import entity_area_id
 from .sequences import SequenceEngine
 
 _LOGGER = logging.getLogger(__name__)
@@ -222,7 +227,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         if subentry.subentry_type == SUBENTRY_ROUTE
     ]
     settings = LumaSettings()
-    controller = LightController(hass, entry.entry_id)
+    controller = LightController(
+        hass,
+        entry.entry_id,
+        float(config.get(CONF_VERIFY_TIMEOUT, DEFAULT_VERIFY_TIMEOUT)),
+    )
     # Loaded now: restoring the master switch reads its saved origin.
     await controller.async_load()
     monitor = AvailabilityMonitor(
@@ -263,11 +272,42 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         on_lights=lambda lights: monitor.async_set_role_lights(ROLE_DREAM, lights),
     )
     await dream.async_load()
+    context = ContextProvider(
+        hass,
+        config,
+        on_change=lambda: hass.async_create_task(
+            engine.async_settings_changed(), f"{DOMAIN}_context_{entry.entry_id}"
+        ),
+    )
     engine.replay = replay
     engine.dream = dream
     engine.player = player
+    engine.context = replay.context = dream.context = context
+
+    def alternatives(entity_id: str) -> list[str]:
+        """Other simulation lights of a light's room, in room-mapping order."""
+        if (area := entity_area_id(hass, entity_id)) is None:
+            return []
+        front = set(config.get(CONF_FRONT_LIGHTS, []))
+        rear = set(config.get(CONF_REAR_LIGHTS, []))
+        lights = list(config.get(CONF_LIGHTS, []))
+        same_room = [
+            (0 if light in front else 1 if light in rear else 2, index, light)
+            for index, light in enumerate(lights)
+            if light != entity_id and entity_area_id(hass, light) == area
+        ]
+        return [light for _, _, light in sorted(same_room)]
+
+    player.alternatives = sequences.alternatives = alternatives
+    player.map_by_room = lambda: settings.map_by_room
     reporter = NightReporter(
-        hass, entry.entry_id, settings, controller, player, config.get(CONF_REPORT_NOTIFY)
+        hass,
+        entry.entry_id,
+        settings,
+        controller,
+        player,
+        config.get(CONF_REPORT_NOTIFY),
+        dream,
     )
     alarm: AlarmController | None = None
     if config.get(CONF_ALARM_CONTROL, DEFAULT_ALARM_CONTROL) and config.get(CONF_ALARM):
@@ -292,6 +332,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         monitor=monitor,
         replay=replay,
         alarm=alarm,
+        context=context,
         player=player,
         dream=dream,
         reporter=reporter,
@@ -304,6 +345,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         route_lights = [light for route in routes for light in route.lights]
         _check_entities(hass, entry, config, route_lights)
         await controller.async_start([*engine.lights, *route_lights])
+        context.async_start()
         await engine.async_start()
         dream.async_start()
         await sequences.async_start()
@@ -354,6 +396,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> boo
         runtime.reporter.async_shutdown()
     if runtime.player is not None:
         runtime.player.async_shutdown()
+    if runtime.context is not None:
+        runtime.context.async_shutdown()
     if runtime.alarm is not None:
         await runtime.alarm.async_shutdown()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

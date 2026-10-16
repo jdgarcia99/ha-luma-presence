@@ -44,6 +44,7 @@ from homeassistant.helpers.selector import (
     SelectSelectorConfig,
     SelectSelectorMode,
     TextSelector,
+    TimeSelector,
 )
 
 from .const import (
@@ -52,12 +53,18 @@ from .const import (
     CONF_ALARM_ACTIVATE_STATES,
     CONF_ALARM_CONTROL,
     CONF_AUTO_EXCLUDE_INDICATORS,
+    CONF_BAD_WEATHER_BOOST,
+    CONF_DARKNESS_EARLIEST,
+    CONF_DARKNESS_LATEST,
+    CONF_DARKNESS_SENSOR,
+    CONF_DARKNESS_THRESHOLD,
     CONF_DESTINATION,
     CONF_DREAM_CANDIDATES,
     CONF_DREAM_MAX_SIMILARITY,
     CONF_DWELL_MAX,
     CONF_DWELL_MIN,
     CONF_FRONT_LIGHTS,
+    CONF_HOLIDAY_CALENDAR,
     CONF_HUMAN_ONLY,
     CONF_LEARN_AREAS,
     CONF_LEARN_EXCLUDE,
@@ -66,6 +73,10 @@ from .const import (
     CONF_LIGHTS,
     CONF_MARGIN_AFTER,
     CONF_MARGIN_BEFORE,
+    CONF_MORNING_ENABLED,
+    CONF_MORNING_END,
+    CONF_MORNING_START,
+    CONF_MORNING_WORKDAYS_ONLY,
     CONF_ORIGIN,
     CONF_PATH,
     CONF_PERSONS,
@@ -74,9 +85,15 @@ from .const import (
     CONF_STEP_DELAY_MAX,
     CONF_STEP_DELAY_MIN,
     CONF_UNAVAILABLE_ALERT_MINUTES,
+    CONF_VERIFY_TIMEOUT,
+    CONF_WEATHER_ENTITY,
     DEFAULT_ALARM_ACTIVATE_STATES,
     DEFAULT_ALARM_CONTROL,
     DEFAULT_AUTO_EXCLUDE_INDICATORS,
+    DEFAULT_BAD_WEATHER_BOOST,
+    DEFAULT_DARKNESS_EARLIEST,
+    DEFAULT_DARKNESS_LATEST,
+    DEFAULT_DARKNESS_THRESHOLD,
     DEFAULT_DREAM_CANDIDATES,
     DEFAULT_DREAM_MAX_SIMILARITY,
     DEFAULT_DWELL_MAX,
@@ -84,10 +101,15 @@ from .const import (
     DEFAULT_HUMAN_ONLY,
     DEFAULT_MARGIN_AFTER,
     DEFAULT_MARGIN_BEFORE,
+    DEFAULT_MORNING_ENABLED,
+    DEFAULT_MORNING_END,
+    DEFAULT_MORNING_START,
+    DEFAULT_MORNING_WORKDAYS_ONLY,
     DEFAULT_NAME,
     DEFAULT_STEP_DELAY_MAX,
     DEFAULT_STEP_DELAY_MIN,
     DEFAULT_UNAVAILABLE_ALERT_MINUTES,
+    DEFAULT_VERIFY_TIMEOUT,
     DOMAIN,
     EXCLUDED_INDICATOR,
     PREVIEW_MAX_ENTITIES,
@@ -101,6 +123,7 @@ STEP_LEARNING = "learning"
 STEP_LEARNING_PREVIEW = "learning_preview"
 STEP_PRESENCE = "presence"
 STEP_SEQUENCES = "sequences"
+STEP_CONTEXT = "context"
 STEP_DREAM = "dream"
 STEP_MONITORING = "monitoring"
 STEP_SAVE = "save"
@@ -110,6 +133,7 @@ MENU_OPTIONS = [
     STEP_LEARNING,
     STEP_LEARNING_PREVIEW,
     STEP_PRESENCE,
+    STEP_CONTEXT,
     STEP_SEQUENCES,
     STEP_DREAM,
     STEP_MONITORING,
@@ -138,6 +162,11 @@ _EMPTY_VALUES: dict[str, dict[str, Any]] = {
     },
     STEP_PRESENCE: {CONF_PERSONS: [], CONF_ALARM: None, CONF_ALARM_ACTIVATE_STATES: []},
     STEP_MONITORING: {CONF_REPORT_NOTIFY: ""},
+    STEP_CONTEXT: {
+        CONF_DARKNESS_SENSOR: None,
+        CONF_HOLIDAY_CALENDAR: None,
+        CONF_WEATHER_ENTITY: None,
+    },
 }
 
 
@@ -302,8 +331,86 @@ def _monitoring_schema(options: Mapping[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_REPORT_NOTIFY, description=_suggested(options, CONF_REPORT_NOTIFY)
             ): TextSelector(),
+            vol.Required(
+                CONF_VERIFY_TIMEOUT,
+                default=options.get(CONF_VERIFY_TIMEOUT, DEFAULT_VERIFY_TIMEOUT),
+            ): _number(60, "s"),
         }
     )
+
+
+def _context_schema(options: Mapping[str, Any]) -> vol.Schema:
+    def minutes(low: int, high: int) -> NumberSelector:
+        return NumberSelector(
+            NumberSelectorConfig(
+                min=low, max=high, step=5, unit_of_measurement="min", mode=NumberSelectorMode.BOX
+            )
+        )
+
+    def entity(**config: Any) -> EntitySelector:
+        return EntitySelector(EntitySelectorConfig(**config))
+
+    return vol.Schema(
+        {
+            vol.Optional(
+                CONF_DARKNESS_SENSOR, description=_suggested(options, CONF_DARKNESS_SENSOR)
+            ): entity(domain="sensor", device_class="illuminance"),
+            vol.Required(
+                CONF_DARKNESS_THRESHOLD,
+                default=options.get(CONF_DARKNESS_THRESHOLD, DEFAULT_DARKNESS_THRESHOLD),
+            ): _number(2000, "lx"),
+            vol.Required(
+                CONF_DARKNESS_EARLIEST,
+                default=options.get(CONF_DARKNESS_EARLIEST, DEFAULT_DARKNESS_EARLIEST),
+            ): minutes(-180, 180),
+            vol.Required(
+                CONF_DARKNESS_LATEST,
+                default=options.get(CONF_DARKNESS_LATEST, DEFAULT_DARKNESS_LATEST),
+            ): minutes(-180, 180),
+            vol.Required(
+                CONF_MORNING_ENABLED,
+                default=options.get(CONF_MORNING_ENABLED, DEFAULT_MORNING_ENABLED),
+            ): BooleanSelector(),
+            vol.Required(
+                CONF_MORNING_START,
+                default=options.get(CONF_MORNING_START, DEFAULT_MORNING_START),
+            ): TimeSelector(),
+            vol.Required(
+                CONF_MORNING_END,
+                default=options.get(CONF_MORNING_END, DEFAULT_MORNING_END),
+            ): TimeSelector(),
+            vol.Required(
+                CONF_MORNING_WORKDAYS_ONLY,
+                default=options.get(CONF_MORNING_WORKDAYS_ONLY, DEFAULT_MORNING_WORKDAYS_ONLY),
+            ): BooleanSelector(),
+            vol.Optional(
+                CONF_HOLIDAY_CALENDAR, description=_suggested(options, CONF_HOLIDAY_CALENDAR)
+            ): entity(domain="calendar"),
+            vol.Optional(
+                CONF_WEATHER_ENTITY, description=_suggested(options, CONF_WEATHER_ENTITY)
+            ): entity(domain="weather"),
+            vol.Required(
+                CONF_BAD_WEATHER_BOOST,
+                default=options.get(CONF_BAD_WEATHER_BOOST, DEFAULT_BAD_WEATHER_BOOST),
+            ): NumberSelector(
+                NumberSelectorConfig(
+                    min=0, max=50, step=5, unit_of_measurement="%", mode=NumberSelectorMode.BOX
+                )
+            ),
+        }
+    )
+
+
+def _validate_context(options: Mapping[str, Any]) -> dict[str, str]:
+    earliest = float(options.get(CONF_DARKNESS_EARLIEST, DEFAULT_DARKNESS_EARLIEST))
+    latest = float(options.get(CONF_DARKNESS_LATEST, DEFAULT_DARKNESS_LATEST))
+    if earliest > latest:
+        return {CONF_DARKNESS_LATEST: "darkness_range"}
+    start = str(options.get(CONF_MORNING_START, DEFAULT_MORNING_START))
+    end = str(options.get(CONF_MORNING_END, DEFAULT_MORNING_END))
+    if options.get(CONF_MORNING_ENABLED) and start >= end:
+        return {CONF_MORNING_END: "morning_range"}
+    return {}
 
 
 def _dream_schema(options: Mapping[str, Any]) -> vol.Schema:
@@ -567,6 +674,23 @@ class LumaPresenceOptionsFlow(_LumaSteps, OptionsFlow):
             return await self.async_step_init()
         return self.async_show_form(
             step_id=STEP_SEQUENCES, data_schema=_sequences_schema(self._options)
+        )
+
+    async def async_step_context(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Darkness, morning window, holidays and weather."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            candidate = {**self._options, **_EMPTY_VALUES[STEP_CONTEXT], **user_input}
+            errors = _validate_context(candidate)
+            if not errors:
+                self._update(STEP_CONTEXT, user_input)
+                return await self.async_step_init()
+        return self.async_show_form(
+            step_id=STEP_CONTEXT,
+            data_schema=_context_schema({**self._options, **(user_input or {})}),
+            errors=errors,
         )
 
     async def async_step_dream(
