@@ -37,6 +37,7 @@ from custom_components.luma_presence.const import (
     CONF_DETERRENCE_MAX,
     CONF_FACADE,
     CONF_FRONT_LIGHTS,
+    CONF_LIGHTS,
     CONF_PATH,
     CONF_TRIGGER_ENTITY,
     CONF_VERIFY_TIMEOUT,
@@ -63,6 +64,7 @@ CURTAIN = "cover.cortina"
 AWNING = "cover.toldo"
 GARAGE = "cover.garaje"
 PLAYER = "media_player.salon"
+TV_LIGHT = "light.tv_salon"
 PORCH = "binary_sensor.porche"
 DOORBELL = "event.timbre"
 
@@ -106,15 +108,17 @@ def _covers(hass: HomeAssistant, obey: bool = True) -> list[ServiceCall]:
     return calls
 
 
-def _areas(hass: HomeAssistant) -> None:
-    """Living room: light.salon and the media player."""
+def _areas(hass: HomeAssistant) -> dict[str, Any]:
+    """Living room: a TV backlight (a simulation light) and the media player."""
     salon = ar.async_get(hass).async_get_or_create("Salon")
     entities = er.async_get(hass)
-    for domain, object_id in (("light", "salon"), ("media_player", "salon")):
+    for domain, object_id in (("light", "tv_salon"), ("media_player", "salon")):
         entry = entities.async_get_or_create(
             domain, "test", object_id, suggested_object_id=object_id
         )
         entities.async_update_entity(entry.entity_id, area_id=salon.id)
+    hass.states.async_set(TV_LIGHT, STATE_OFF)
+    return {CONF_LIGHTS: [*OPTIONS[CONF_LIGHTS], TV_LIGHT]}
 
 
 def _media(hass: HomeAssistant) -> list[ServiceCall]:
@@ -262,7 +266,7 @@ async def test_cover_close_at_darkness_decision(
     )
     sunset = get_astral_event_date(hass, SUN_EVENT_SUNSET, TODAY)
     assert entry.runtime_data.covers._close_move(CURTAIN, TODAY).at == sunset
-    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.config_entries.async_remove(entry.entry_id)
 
     hass.states.async_set(LUX, "500")
     entry = await _setup(
@@ -356,7 +360,7 @@ async def test_covers_move_only_on_real_absence(
     await hass.async_block_till_done()
     plan = hass.states.get("sensor.luma_presence_tonight_plan")
     assert plan.attributes["covers"][0]["entity_id"] == BLIND
-    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.config_entries.async_remove(entry.entry_id)
 
     # Someone at home testing the simulation: covers stay as they are.
     hass.states.async_set(
@@ -416,9 +420,10 @@ async def test_ambience_sessions(
     hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory
 ) -> None:
     """Plays while the room is occupied, stops when idle or quiet, restores the player."""
-    _areas(hass)
+    lights = _areas(hass)
     calls = _media(hass)
     options = {
+        **lights,
         CONF_AMBIENCE_PLAYERS: [PLAYER],
         CONF_AMBIENCE_MEDIA: "http://radio.example/stream",
     }
@@ -429,7 +434,7 @@ async def test_ambience_sessions(
     assert runtime.engine.status == "simulating"
     assert not calls
 
-    await runtime.controller.async_switch("light.salon", True, OWNER_SIMULATION)
+    await runtime.controller.async_switch(TV_LIGHT, True, OWNER_SIMULATION)
     await until(hass, lambda: hass.states.get(PLAYER).state == "playing")
     assert [(c.service, c.data.get("volume_level")) for c in calls[:1]] == [
         ("volume_set", 0.15)
@@ -437,7 +442,7 @@ async def test_ambience_sessions(
     assert calls[1].data["media_content_id"] == "http://radio.example/stream"
 
     # The room becomes idle: stop and restore.
-    await runtime.controller.async_switch("light.salon", False)
+    await runtime.controller.async_switch(TV_LIGHT, False)
     await until(
         hass,
         lambda: (
@@ -448,7 +453,7 @@ async def test_ambience_sessions(
     assert hass.states.get(PLAYER).attributes["volume_level"] == 0.4
 
     # Again, until the quiet time.
-    await runtime.controller.async_switch("light.salon", True, OWNER_SIMULATION)
+    await runtime.controller.async_switch(TV_LIGHT, True, OWNER_SIMULATION)
     await until(hass, lambda: hass.states.get(PLAYER).state == "playing")
     await _move(hass, freezer, _local(TODAY, 23, 30))
     await until(hass, lambda: hass.states.get(PLAYER).state == "idle")
@@ -461,14 +466,14 @@ async def test_ambience_needs_a_real_absence(
     hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory
 ) -> None:
     """A simulation test with people at home plays nothing."""
-    _areas(hass)
+    lights = _areas(hass)
     calls = _media(hass)
-    options = {CONF_AMBIENCE_PLAYERS: [PLAYER], CONF_AMBIENCE_MEDIA: "radio"}
+    options = {**lights, CONF_AMBIENCE_PLAYERS: [PLAYER], CONF_AMBIENCE_MEDIA: "radio"}
     entry = await _setup(hass, freezer, options, hour=21, absent=False)
     runtime = entry.runtime_data
     runtime.engine._async_step = AsyncMock()
     await _turn_on(hass)
-    await runtime.controller.async_switch("light.salon", True, OWNER_SIMULATION)
+    await runtime.controller.async_switch(TV_LIGHT, True, OWNER_SIMULATION)
     await hass.async_block_till_done()
     assert calls == []
 
@@ -520,7 +525,8 @@ async def test_deterrence_reaction_between_windows(
     assert runtime.engine.status == "idle" and deterrence.active()
 
     await _detect(hass)
-    await until(hass, lambda: _on(hass, "light.bedroom") and _on(hass, "light.hall"))
+    await until(hass, lambda: len(waits["waits"]) == 3)
+    assert _on(hass, "light.bedroom") and _on(hass, "light.hall")
     first, path_delay, hold = waits["waits"]
     assert 2 <= first <= 6 and 10 <= path_delay <= 25 and 180 <= hold <= 480
     assert runtime.controller.owner_of("light.bedroom") == OWNER_DETERRENCE
@@ -553,13 +559,13 @@ async def test_deterrence_inactive_by_day_or_at_home(
     assert not deterrence.active()  # afternoon, before the evening gets dark
     await _detect(hass)
     assert not deterrence.running and deterrence.reactions_tonight == 0
-    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.config_entries.async_remove(entry.entry_id)
 
     entry = await _setup(
         hass, freezer, DETERRENCE, hour=23, triggers=[TRIGGER], absent=False
     )
     assert not entry.runtime_data.deterrence.active()  # someone at home
-    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.config_entries.async_remove(entry.entry_id)
 
     hass.states.async_set(LUX, "900")
     entry = await _setup(
@@ -635,12 +641,9 @@ async def test_deterrence_same_facade_fallback(
     _porch(hass, STATE_OFF)
 
     async def _ignore(call: ServiceCall) -> None:
-        ids = call.data["entity_id"]
-        for entity_id in [ids] if isinstance(ids, str) else ids:
-            if entity_id != "light.bedroom":
-                hass.states.async_set(entity_id, STATE_ON, context=call.context)
+        """switch.oficina, the first front light in configuration order, ignores us."""
 
-    hass.services.async_register("light", "turn_on", _ignore)
+    hass.services.async_register("switch", "turn_on", _ignore)
     options = {
         **DETERRENCE,
         CONF_FRONT_LIGHTS: ["light.bedroom", "switch.oficina"],
@@ -651,12 +654,13 @@ async def test_deterrence_same_facade_fallback(
     )
     runtime = entry.runtime_data
     await _detect(hass)
-    await until(hass, lambda: "light.bedroom" in runtime.deterrence._held)
+    await until(hass, lambda: "switch.oficina" in runtime.deterrence._held)
     for _ in range(3):
         await _move(hass, freezer, dt_util.utcnow() + timedelta(seconds=6))
-    await until(hass, lambda: _on(hass, "switch.oficina"))
-    assert runtime.controller.owner_of("switch.oficina") == OWNER_DETERRENCE
-    assert "switch.oficina" in runtime.deterrence.last["lights"]
+    await until(hass, lambda: _on(hass, "light.bedroom"))
+    assert runtime.controller.failure_counts["switch.oficina"] == 1
+    assert runtime.controller.owner_of("light.bedroom") == OWNER_DETERRENCE
+    assert "light.bedroom" in runtime.deterrence.last["lights"]
 
 
 async def test_test_deterrence_button(
@@ -672,7 +676,7 @@ async def test_test_deterrence_button(
             blocking=True,
         )
     assert err.value.translation_key == "no_deterrence_triggers"
-    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.config_entries.async_remove(entry.entry_id)
 
     _porch(hass, STATE_OFF)
     hass.states.async_set(LUX, "900")

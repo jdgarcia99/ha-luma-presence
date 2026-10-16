@@ -14,23 +14,20 @@ from homeassistant.setup import async_setup_component
 LIGHTS = ["light.salon", "light.hall", "switch.oficina", "light.bedroom"]
 FRONT = ["light.bedroom"]
 
-try:  # wall time, even when the test freezes the clock
-    from freezegun.api import real_monotonic as _monotonic
-except ImportError:  # pragma: no cover
-    _monotonic = time.monotonic
-
 
 async def until(
     hass: HomeAssistant, predicate: Callable[[], bool], timeout: float = 5.0
 ) -> None:
-    """Wait (up to `timeout` seconds of wall time) until `predicate` holds.
+    """Wait (up to about `timeout` seconds of wall time) until `predicate` holds.
 
     Plans are generated in the executor, so counting event-loop turns is not
     enough on slow machines: let Home Assistant settle and give the executor
-    real time in between.
+    real time in between. Pauses are counted rather than timed, because the
+    test may freeze every clock.
     """
-    deadline = _monotonic() + timeout
-    while not predicate() and _monotonic() < deadline:
+    for _ in range(int(timeout / 0.01)):
+        if predicate():
+            return
         await hass.async_block_till_done()
         if predicate():
             return
