@@ -188,6 +188,8 @@ class NightPlan:
     preview: bool = False
     # Display names of the rooms or targets, for the summary.
     names: dict[str, str] = field(default_factory=dict)
+    # Cover moves of the night (v0.8.0): [time, cover, open/close, source].
+    covers: list[list[str]] = field(default_factory=list)
 
     @property
     def transitions(self) -> list[Transition]:
@@ -256,6 +258,7 @@ class NightPlan:
             "scenario": self.scenario,
             "reason": self.reason,
             "names": self.names,
+            "covers": self.covers,
         }
 
     @classmethod
@@ -274,6 +277,7 @@ class NightPlan:
             scenario=data.get("scenario"),
             reason=data.get("reason"),
             names=dict(data.get("names", {})),
+            covers=[list(item) for item in data.get("covers", [])],
         )
 
 
@@ -319,6 +323,8 @@ class PlanPlayer:
         self.alternatives: Callable[[str], list[str]] | None = None
         self.map_by_room: Callable[[], bool] = lambda: True
         self._remap: dict[str, str] = {}
+        # Cover moves of a night (set by the integration when covers are used).
+        self.covers_for: Callable[[date], list[list[str]]] | None = None
 
     @callback
     def async_shutdown(self) -> None:
@@ -334,6 +340,8 @@ class PlanPlayer:
     @callback
     def set_plan(self, plan: NightPlan | None) -> None:
         """Set tonight's plan, or show a preview without touching it."""
+        if plan is not None and self.covers_for is not None:
+            plan.covers = self.covers_for(plan.night)
         if plan is not None and plan.preview:
             self.preview = plan
         else:
@@ -343,6 +351,36 @@ class PlanPlayer:
     def real_absence(self) -> bool:
         """Return True while the house is really empty."""
         return bool(self._learning.reasons & REAL_ABSENCE_REASONS)
+
+    @property
+    def active(self) -> bool:
+        """Return True while a plan is being played."""
+        return self._active
+
+    def desired_state(self, target: str) -> str | None:
+        """What tonight's plan wants for a light now (None: not in the plan)."""
+        plan = self.plan
+        if not self._active or plan is None:
+            return None
+        seconds = to_night_seconds(dt_util.as_local(dt_util.utcnow()), plan.night)
+        states = plan.state_at(seconds)
+        for original, stand_in in self._remap.items():
+            if stand_in == target and original in states:
+                return states[original]
+        return states.get(target)
+
+    def planned_near(self, seconds: float, margin: float) -> set[str]:
+        """Lights the plan switches on around a night clock time."""
+        plan = self.plan
+        if not self._active or plan is None:
+            return set()
+        on = {t for t, v in plan.state_at(seconds).items() if v == STATE_ON}
+        on |= {
+            t.target
+            for t in plan.transitions
+            if t.state == STATE_ON and abs(t.seconds - seconds) <= margin
+        }
+        return {self._remap.get(target, target) for target in on}
 
     async def async_play(self, plan: NightPlan) -> None:
         """Play a plan until cancelled by the end of the window."""

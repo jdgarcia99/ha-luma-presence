@@ -26,6 +26,7 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
 from .alarm import AlarmController
+from .ambience import AmbienceEngine
 from .const import (
     ATTR_CONFIG_ENTRY_ID,
     ATTR_DAY_TYPE,
@@ -36,6 +37,8 @@ from .const import (
     CONF_ALARM,
     CONF_ALARM_ACTIVATE_STATES,
     CONF_ALARM_CONTROL,
+    CONF_AMBIENCE_PLAYERS,
+    CONF_COVERS,
     CONF_FRONT_LIGHTS,
     CONF_LEARN_AREAS,
     CONF_LEARN_EXCLUDE,
@@ -62,9 +65,12 @@ from .const import (
     SERVICE_START,
     SERVICE_STOP,
     STOP_BEHAVIORS,
+    SUBENTRY_DETERRENCE,
     SUBENTRY_ROUTE,
 )
 from .context import ContextProvider
+from .covers import CoverEngine
+from .deterrence import DeterrenceEngine, DeterrenceTrigger
 from .dream import DreamEngine
 from .engine import SimulationEngine
 from .learning import LearningGate
@@ -229,6 +235,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         for subentry in entry.subentries.values()
         if subentry.subentry_type == SUBENTRY_ROUTE
     ]
+    triggers = [
+        DeterrenceTrigger.from_data(subentry.subentry_id, subentry.title, subentry.data)
+        for subentry in entry.subentries.values()
+        if subentry.subentry_type == SUBENTRY_DETERRENCE
+    ]
     settings = LumaSettings()
     controller = LightController(
         hass,
@@ -283,8 +294,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
 
     @callback
     def _context_changed() -> None:
-        """Darkness or workdays changed: windows move, the daylight guard acts."""
+        """Darkness or workdays changed: windows move, the daylight guard acts.
+
+        The daylight guard ends routes and deterrence holds; it never blocks
+        covers, which only move to their new times.
+        """
         sequences.async_check_daylight()
+        deterrence.async_check_daylight()
+        covers.async_refresh()
         hass.async_create_task(
             engine.async_settings_changed(), f"{DOMAIN}_context_{entry.entry_id}"
         )
@@ -311,6 +328,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
 
     player.alternatives = sequences.alternatives = alternatives
     player.map_by_room = lambda: settings.map_by_room
+    covers = CoverEngine(
+        hass, entry.entry_id, config, settings, controller, learning, player, context, replay
+    )
+    if covers.covers:
+        player.covers_for = covers.plan_items
+    ambience = AmbienceEngine(hass, entry.entry_id, config, controller, engine, player)
+    deterrence = DeterrenceEngine(
+        hass, entry.entry_id, config, settings, controller, engine, player, triggers
+    )
+    ambience.daylight = deterrence.daylight = context.daylight
+    deterrence.dark_now = context.dark_now
     reporter = NightReporter(
         hass,
         entry.entry_id,
@@ -347,6 +375,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         player=player,
         dream=dream,
         reporter=reporter,
+        covers=covers,
+        ambience=ambience,
+        deterrence=deterrence,
     )
 
     # Entities restore their settings while the platforms are set up.
@@ -354,15 +385,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
 
     async def _async_start(_hass: HomeAssistant) -> None:
         route_lights = [light for route in routes for light in route.lights]
-        _check_entities(hass, entry, config, route_lights)
-        await controller.async_start([*engine.lights, *route_lights])
+        path_lights = [light for trigger in triggers for light in trigger.path]
+        _check_entities(
+            hass,
+            entry,
+            config,
+            [
+                *route_lights,
+                *path_lights,
+                *(trigger.entity_id for trigger in triggers),
+            ],
+        )
+        await controller.async_start(
+            [*engine.lights, *route_lights, *path_lights, *covers.covers]
+        )
         context.async_start()
         await engine.async_start()
         dream.async_start()
         await sequences.async_start()
         reporter.async_start()
+        covers.async_start()
+        deterrence.async_start()
         await learning.async_start()
         await monitor.async_start()
+        ambience.async_start()
         # Last: the master switch is restored and every engine has started.
         if alarm is not None:
             await alarm.async_start()
@@ -404,6 +450,12 @@ async def async_migrate_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bo
 async def async_unload_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool:
     """Unload a config entry."""
     runtime = entry.runtime_data
+    if runtime.deterrence is not None:
+        await runtime.deterrence.async_shutdown()
+    if runtime.ambience is not None:
+        await runtime.ambience.async_shutdown()
+    if runtime.covers is not None:
+        runtime.covers.async_shutdown()
     await runtime.sequences.async_shutdown()
     await runtime.engine.async_shutdown()
     await runtime.learning.async_shutdown()
@@ -447,13 +499,15 @@ async def _async_update_listener(hass: HomeAssistant, entry: LumaConfigEntry) ->
 
 
 def _check_entities(
-    hass: HomeAssistant, entry: LumaConfigEntry, config: dict, route_lights: list[str]
+    hass: HomeAssistant, entry: LumaConfigEntry, config: dict, extra: list[str]
 ) -> None:
     """Raise a repair issue if configured entities no longer exist."""
     entities = [
         *config.get(CONF_LIGHTS, []),
         *config.get(CONF_PERSONS, []),
-        *dict.fromkeys(route_lights),
+        *config.get(CONF_COVERS, []),
+        *config.get(CONF_AMBIENCE_PLAYERS, []),
+        *dict.fromkeys(extra),
     ]
     if alarm := config.get(CONF_ALARM):
         entities.append(alarm)

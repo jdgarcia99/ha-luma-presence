@@ -17,6 +17,8 @@ Rules
   by observed time only.
 * The learned entities come from the learning scope (see ``scope.py``) and
   are recomputed when the entity, device, area or floor registry changes.
+* Human changes of the configured covers (v0.8.0) are learned the same way
+  and stored apart, as ``[entity_id, "open"|"closed"|position, seconds, area]``.
 """
 
 from __future__ import annotations
@@ -60,6 +62,7 @@ from .const import (
     ABSENCE_REASONS,
     COMMIT_INTERVAL,
     CONF_ALARM,
+    CONF_COVERS,
     CONF_HUMAN_ONLY,
     CONF_MARGIN_AFTER,
     CONF_MARGIN_BEFORE,
@@ -82,6 +85,7 @@ from .const import (
     VALID_DAY_MIN_EXPOSURE_S,
     signal_update,
 )
+from .covers import cover_value
 from .models import LumaSettings
 from .scope import entity_area_id, resolve_learning_scope
 
@@ -138,20 +142,26 @@ class LearningGate:
             hours=float(config.get(CONF_MARGIN_AFTER, DEFAULT_MARGIN_AFTER))
         )
         self._human_only = bool(config.get(CONF_HUMAN_ONLY, DEFAULT_HUMAN_ONLY))
+        self._covers: list[str] = list(config.get(CONF_COVERS) or [])
 
         self._store: Store[dict[str, Any]] = Store(
             hass, STORE_VERSION, f"{DOMAIN}.{entry_id}.learning"
         )
         # {"YYYY-MM-DD": {"exposure": [[s, e], ...],
-        #                 "events": [[entity, state, s, area], ...]}}
+        #                 "events": [[entity, state, s, area], ...],
+        #                 "covers": [[entity, value, s, area], ...]}}
         # Events stored before v0.2.0 have no area; read them with parse_event().
         self._days: dict[str, dict[str, list[Any]]] = {}
         self._absence_since: datetime | None = None
         self._blocked_until: datetime | None = None
         self._segment_start: datetime | None = None
-        self._pending: list[tuple[str, str, datetime, str | None]] = []
+        self._pending: list[tuple[str, Any, datetime, str | None]] = []
 
         self.reasons: set[str] = set()
+        # Last settled value of each cover, so "opening" -> "open" counts once.
+        self._last_cover: dict[str, Any] = {}
+        # Covers moving now, and whether LumaPresence (or an automation) moved them.
+        self._cover_started: dict[str, bool] = {}
         self._started = False
         self._unsubs: list[CALLBACK_TYPE] = []
         self._unsub_lights: CALLBACK_TYPE | None = None
@@ -193,6 +203,12 @@ class LearningGate:
             async_track_time_interval(self.hass, self._handle_tick, COMMIT_INTERVAL)
         )
         self._unsubs.append(self._engine.add_enabled_listener(self.async_evaluate))
+        if self._covers:
+            for cover in self._covers:
+                self._last_cover[cover] = cover_value(self.hass.states.get(cover))
+            self._unsubs.append(
+                async_track_state_change_event(self.hass, self._covers, self._handle_cover)
+            )
         self._started = True
         self.async_evaluate()
 
@@ -352,6 +368,36 @@ class LearningGate:
         )
 
     @callback
+    def _handle_cover(self, event: Event[EventStateChangedData]) -> None:
+        """Human cover moves: the same gate and human-only filter as lights.
+
+        A cover settles ("open") some time after the command ("opening"), with
+        a context of its own: the context that started the move decides.
+        """
+        entity_id = event.data["entity_id"]
+        new = event.data["new_state"]
+        if new is None:
+            return
+        own = self._engine.is_own_context(new.context.id)
+        automated = self._human_only and new.context.parent_id is not None
+        value = cover_value(new)
+        if value is None:
+            if new.state in ("opening", "closing"):
+                # The move starts: remember who started it.
+                self._cover_started[entity_id] = own or automated
+            return
+        previous = self._last_cover.get(entity_id)
+        self._last_cover[entity_id] = value
+        started_by_us = self._cover_started.pop(entity_id, None)
+        if value == previous or self._segment_start is None:
+            return
+        if own or automated or started_by_us:
+            return
+        self._pending.append(
+            (entity_id, value, new.last_changed, entity_area_id(self.hass, entity_id))
+        )
+
+    @callback
     def _handle_registry_update(self, _event: Event) -> None:
         self._scope_debouncer.async_schedule_call()
 
@@ -422,7 +468,7 @@ class LearningGate:
         if self._segment_start is None or cutoff <= self._segment_start:
             return
         self._add_exposure(self._segment_start, cutoff)
-        keep: list[tuple[str, str, datetime, str | None]] = []
+        keep: list[tuple[str, Any, datetime, str | None]] = []
         for pending in self._pending:
             if pending[2] < cutoff:
                 self._add_event(*pending)
@@ -462,12 +508,13 @@ class LearningGate:
             current = segment_end
 
     def _add_event(
-        self, entity_id: str, state: str, when: datetime, area_id: str | None
+        self, entity_id: str, state: Any, when: datetime, area_id: str | None
     ) -> None:
         local = dt_util.as_local(when)
         day_start = dt_util.start_of_local_day(local.date())
         seconds = int((local - day_start).total_seconds())
-        self._day(local.date())["events"].append([entity_id, state, seconds, area_id])
+        key = "covers" if entity_id in self._covers else "events"
+        self._day(local.date()).setdefault(key, []).append([entity_id, state, seconds, area_id])
 
     def _data_to_save(self) -> dict[str, Any]:
         return {

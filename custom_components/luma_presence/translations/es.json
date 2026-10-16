@@ -90,6 +90,9 @@
           "context": "Contexto",
           "sequences": "Secuencias nocturnas",
           "dream": "Dream",
+          "covers": "Persianas",
+          "ambience": "Ambiente",
+          "deterrence": "Disuasión",
           "monitoring": "Supervisión",
           "save": "Guardar"
         }
@@ -236,6 +239,56 @@
           "weather_entity": "Lluvia, nieve, tormenta, granizo o menos de 8 °C cuentan como mal tiempo.",
           "bad_weather_boost": "Dream: las dos estancias con más uso por la tarde empiezan esta proporción más a menudo. Sol y Horario: una luz más encendida."
         }
+      },
+      "covers": {
+        "title": "Persianas",
+        "description": "Las persianas, estores y cortinas se abren por la mañana y se cierran al anochecer, solo durante una ausencia real (alarma armada en ausencia o vacaciones, o nadie en casa), nunca durante una prueba. Nunca se usan toldos, puertas de garaje, cancelas ni puertas: el viento puede dañar los toldos, y las puertas, garajes y cancelas son un riesgo de seguridad. El guardián de luz diurna no bloquea las persianas.",
+        "data": {
+          "covers": "Persianas",
+          "covers_mode": "Horas de apertura y cierre",
+          "covers_open_position": "Abrir hasta",
+          "covers_open_workday": "Abrir los días laborables a las",
+          "covers_open_nonworkday": "Abrir los días no laborables a las",
+          "covers_close_delay_min": "Cerrar hasta este tiempo después de oscurecer (minutos)"
+        },
+        "data_description": {
+          "covers": "Persianas, estores, cortinas y ventanas. No se ofrecen toldos, puertas de garaje, cancelas ni puertas.",
+          "covers_mode": "Horario: las horas de abajo. Aprendido: las horas a las que la casa abre y cierra cada persiana (Replay reproduce su noche de origen; si no, se muestrean por tipo de día); se usa el horario mientras una persiana tenga menos de 7 días observados.",
+          "covers_open_position": "Posición para abrir las persianas que lo admiten (100 = abierta del todo).",
+          "covers_open_workday": "Nunca antes del amanecer.",
+          "covers_open_nonworkday": "Sábados, domingos y festivos (sensor de Workday o calendario de festivos de la sección Contexto). Nunca antes del amanecer.",
+          "covers_close_delay_min": "Las persianas se cierran cuando oscurece (la decisión de oscuridad de la sección Contexto, o la puesta de sol), cada una tras un retraso aleatorio de hasta este tiempo."
+        }
+      },
+      "ambience": {
+        "title": "Ambiente",
+        "description": "Sonido opcional: un reproductor suena mientras su estancia está ocupada en la simulación de esta noche, solo durante una ausencia real, nunca después de la hora de silencio y nunca mientras sea de día. Después se restauran el volumen y la fuente anteriores. La retroiluminación de la tele (WLED o similar) no necesita nada aquí: añádela como luz de simulación.",
+        "data": {
+          "ambience_players": "Reproductores",
+          "ambience_media": "Qué reproducir",
+          "ambience_volume": "Volumen",
+          "ambience_quiet_after": "Silencio a partir de"
+        },
+        "data_description": {
+          "ambience_players": "Cada reproductor debe estar en un área: suena mientras haya encendida una luz de simulación de esa área.",
+          "ambience_media": "Una línea por reproductor, `media_player.salon = http://radio.example/stream`. Una línea sin reproductor se usa para todos los que no tengan línea propia.",
+          "ambience_volume": "Volumen mientras suena (0–1).",
+          "ambience_quiet_after": "Sin sonido desde esta hora hasta el mediodía."
+        }
+      },
+      "deterrence": {
+        "title": "Disuasión",
+        "description": "Cuando un sensor exterior detecta a alguien de noche durante una ausencia real, la casa reacciona como si alguien se despertara: una luz de esa fachada y después las luces hacia la puerta, durante unos minutos. Solo luces: nunca sirenas, cerraduras ni puertas. Añade los disparadores desde la página de la integración (Añadir disparador de disuasión).",
+        "data": {
+          "deterrence_enabled": "Disuasión",
+          "deterrence_cooldown_min": "Espera por disparador (minutos)",
+          "deterrence_max_per_night": "Reacciones por noche como máximo"
+        },
+        "data_description": {
+          "deterrence_enabled": "Desactivada por defecto. Activa mientras es de noche: desde la decisión de oscuridad de la tarde (o la puesta de sol) hasta que es de día, haya o no ventana de simulación.",
+          "deterrence_cooldown_min": "Un disparador no vuelve a reaccionar hasta pasado este tiempo desde su última reacción.",
+          "deterrence_max_per_night": "Las detecciones siguientes se ignoran hasta la noche siguiente."
+        }
       }
     },
     "error": {
@@ -246,7 +299,11 @@
       "activate_states_required": "Selecciona al menos un estado de la alarma.",
       "darkness_range": "El inicio más tardío no puede ser anterior al más temprano.",
       "calendar_is_workday": "Este calendario es de la integración Workday y sus eventos son días laborables, no festivos. Elígelo como sensor de Workday.",
-      "nonworkday_start_not_later": "Con Más tarde, el despertar de los días no laborables debe empezar después del inicio del despertar."
+      "nonworkday_start_not_later": "Con Más tarde, el despertar de los días no laborables debe empezar después del inicio del despertar.",
+      "cover_forbidden_class": "No se pueden simular toldos, puertas de garaje, cancelas ni puertas: el viento puede dañar los toldos, y las puertas, garajes y cancelas son un riesgo de seguridad.",
+      "ambience_media_required": "Indica qué debe reproducir cada reproductor.",
+      "ambience_media_invalid": "Cada línea debe ser `media_player.nombre = id del contenido` para uno de los reproductores elegidos, o solo un id de contenido para todos.",
+      "ambience_player_area": "Todos los reproductores deben estar en un área."
     }
   },
   "config_subentries": {
@@ -291,6 +348,46 @@
         "same_origin_destination": "El origen y el destino deben ser luces distintas.",
         "duplicate_light": "Cada luz solo puede aparecer una vez en un recorrido."
       }
+    },
+    "deterrence_trigger": {
+      "entry_type": "Disparador de disuasión",
+      "initiate_flow": {
+        "user": "Añadir disparador de disuasión"
+      },
+      "step": {
+        "user": {
+          "title": "Disparador de disuasión",
+          "description": "Un sensor exterior (movimiento, ocupación o presencia) o una entidad de evento, como un timbre. Cuando se activa de noche durante una ausencia real, se enciende una luz de su fachada y después las luces del recorrido, en orden.",
+          "data": {
+            "trigger_entity": "Disparador",
+            "facade": "Fachada",
+            "path": "Recorrido"
+          },
+          "data_description": {
+            "trigger_entity": "Un sensor binario de clase movimiento, ocupación o presencia, o una entidad de evento.",
+            "facade": "Primero se enciende una luz de simulación apagada de esta fachada.",
+            "path": "Luces hacia la puerta, en orden, por ejemplo el pasillo."
+          }
+        },
+        "reconfigure": {
+          "title": "Disparador de disuasión",
+          "description": "Un sensor exterior (movimiento, ocupación o presencia) o una entidad de evento, como un timbre. Cuando se activa de noche durante una ausencia real, se enciende una luz de su fachada y después las luces del recorrido, en orden.",
+          "data": {
+            "trigger_entity": "Disparador",
+            "facade": "Fachada",
+            "path": "Recorrido"
+          },
+          "data_description": {
+            "trigger_entity": "Un sensor binario de clase movimiento, ocupación o presencia, o una entidad de evento.",
+            "facade": "Primero se enciende una luz de simulación apagada de esta fachada.",
+            "path": "Luces hacia la puerta, en orden, por ejemplo el pasillo."
+          }
+        }
+      },
+      "error": {
+        "trigger_not_allowed": "Usa un sensor binario de movimiento, ocupación o presencia, o una entidad de evento.",
+        "duplicate_light": "Cada luz solo puede aparecer una vez en el recorrido."
+      }
     }
   },
   "entity": {
@@ -300,6 +397,9 @@
       },
       "dream_night": {
         "name": "Soñar una noche"
+      },
+      "test_deterrence": {
+        "name": "Probar disuasión"
       }
     },
     "switch": {
@@ -586,6 +686,26 @@
             }
           }
         }
+      },
+      "last_deterrence": {
+        "name": "Última disuasión",
+        "state_attributes": {
+          "trigger": {
+            "name": "Disparador"
+          },
+          "facade": {
+            "name": "Fachada"
+          },
+          "lights": {
+            "name": "Luces"
+          },
+          "reactions_tonight": {
+            "name": "Reacciones esta noche"
+          },
+          "active": {
+            "name": "Activa"
+          }
+        }
       }
     }
   },
@@ -625,6 +745,18 @@
       "options": {
         "later": "Más tarde",
         "skip": "No simular"
+      }
+    },
+    "covers_mode": {
+      "options": {
+        "schedule": "Horario",
+        "learned": "Aprendido"
+      }
+    },
+    "facade": {
+      "options": {
+        "front": "Delantera",
+        "rear": "Trasera"
       }
     }
   },
@@ -741,10 +873,16 @@
       "message": "Dream todavía no puede planificar esta noche ({reason}). Necesita suficientes noches aprendidas del tipo de día de esta noche."
     },
     "night_report": {
-      "message": "Anoche ({mode}): {lights} luces conmutadas {switches} veces. Estancias: {rooms}. Realismo: {score}. Luces que no obedecieron: {failures}."
+      "message": "Anoche ({mode}): {lights} luces conmutadas {switches} veces. Estancias: {rooms}. Realismo: {score}. Luces que no obedecieron: {failures}. Persianas movidas: {covers}. Sesiones de audio: {ambience}. Reacciones de disuasión: {deterrence}."
     },
     "daylight": {
       "message": "Es de día: LumaPresence no enciende luces mientras haya luz."
+    },
+    "no_deterrence_triggers": {
+      "message": "No hay disparadores de disuasión. Añade uno desde la página de la integración."
+    },
+    "deterrence_running": {
+      "message": "Ya hay una reacción de disuasión en marcha."
     }
   }
 }

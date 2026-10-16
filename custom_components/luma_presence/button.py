@@ -1,4 +1,4 @@
-"""Buttons: run a night route now, and dream a night without playing it."""
+"""Buttons: run a night route or a deterrence reaction now, and dream a night."""
 
 from __future__ import annotations
 
@@ -18,7 +18,9 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the button."""
-    async_add_entities([TestSequenceButton(entry), DreamNightButton(entry)])
+    async_add_entities(
+        [TestSequenceButton(entry), DreamNightButton(entry), TestDeterrenceButton(entry)]
+    )
 
 
 class TestSequenceButton(LumaEntity, ButtonEntity):
@@ -57,3 +59,18 @@ class DreamNightButton(LumaEntity, ButtonEntity):
                     "reason": str(runtime.dream.preview_status.get("reason"))
                 },
             )
+
+
+class TestDeterrenceButton(LumaEntity, ButtonEntity):
+    """Run the deterrence reaction of the first trigger now."""
+
+    _attr_icon = "mdi:shield-home-outline"
+
+    def __init__(self, entry: LumaConfigEntry) -> None:
+        """Initialize the button."""
+        super().__init__(entry, "test_deterrence", "button")
+
+    async def async_press(self) -> None:
+        """React as if the first trigger had fired (blocked while it is day)."""
+        assert self._runtime.deterrence is not None
+        self._runtime.deterrence.async_test()

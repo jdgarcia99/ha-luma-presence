@@ -22,7 +22,10 @@ from .const import (
 
 if TYPE_CHECKING:
     from .alarm import AlarmController
+    from .ambience import AmbienceEngine
     from .context import ContextProvider
+    from .covers import CoverEngine
+    from .deterrence import DeterrenceEngine
     from .dream import DreamEngine
     from .engine import SimulationEngine
     from .learning import LearningGate
@@ -146,6 +149,9 @@ class LumaRuntime:
     dream: DreamEngine | None = None
     reporter: NightReporter | None = None
     context: ContextProvider | None = None
+    covers: CoverEngine | None = None
+    ambience: AmbienceEngine | None = None
+    deterrence: DeterrenceEngine | None = None
 
     async def async_setting_changed(self, key: str) -> None:
         """React to a setting changed from one of the config entities."""
@@ -157,6 +163,8 @@ class LumaRuntime:
             await self.sequences.async_settings_changed(key)
         if key == "dream_half_life" and self.dream is not None:
             await self.dream.async_rebuild()
+        if key == "mode" and self.covers is not None:
+            self.covers.async_refresh()
         async_dispatcher_send(self.hass, signal_update(self.entry_id))
 
 

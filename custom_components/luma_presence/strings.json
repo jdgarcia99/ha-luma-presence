@@ -90,6 +90,9 @@
           "context": "Context",
           "sequences": "Night sequences",
           "dream": "Dream",
+          "covers": "Covers",
+          "ambience": "Ambience",
+          "deterrence": "Deterrence",
           "monitoring": "Monitoring",
           "save": "Save"
         }
@@ -236,6 +239,56 @@
           "weather_entity": "Rain, snow, storms, hail or less than 8 °C count as bad weather.",
           "bad_weather_boost": "Dream: the two busiest evening rooms start this much more often. Sun and Time: one more light on."
         }
+      },
+      "covers": {
+        "title": "Covers",
+        "description": "Blinds, shutters and curtains open in the morning and close at dusk, only during a real absence (alarm armed away or vacation, or nobody home), never during a test. Awnings, garage doors, gates and doors are never used: awnings can be damaged by wind, and doors, garages and gates are a security risk. Covers are not blocked by the daylight guard.",
+        "data": {
+          "covers": "Covers",
+          "covers_mode": "Opening and closing times",
+          "covers_open_position": "Open to",
+          "covers_open_workday": "Open on workdays at",
+          "covers_open_nonworkday": "Open on non-workdays at",
+          "covers_close_delay_min": "Close up to this long after dark (minutes)"
+        },
+        "data_description": {
+          "covers": "Blinds, shutters, curtains, shades and windows. Awnings, garage doors, gates and doors are not offered.",
+          "covers_mode": "Schedule: the times below. Learned: the times your household opens and closes each cover (Replay plays its source night, otherwise they are sampled per day type); the schedule is used while a cover has fewer than 7 observed days.",
+          "covers_open_position": "Position used to open covers that support it (100 = fully open).",
+          "covers_open_workday": "Never before sunrise.",
+          "covers_open_nonworkday": "Saturdays, Sundays and holidays (Workday sensor or holiday calendar from the Context section). Never before sunrise.",
+          "covers_close_delay_min": "Covers close when the evening gets dark (the darkness decision of the Context section, or sunset), each one after a random delay up to this long."
+        }
+      },
+      "ambience": {
+        "title": "Ambience",
+        "description": "Optional sound: a media player plays while its room is occupied in tonight's simulation, only during a real absence, never after the quiet time and never while it is day. The previous volume and source are restored afterwards. The TV backlight (WLED or similar) needs nothing here: add it as a simulation light.",
+        "data": {
+          "ambience_players": "Media players",
+          "ambience_media": "What to play",
+          "ambience_volume": "Volume",
+          "ambience_quiet_after": "Quiet after"
+        },
+        "data_description": {
+          "ambience_players": "Each player must be in an area: it plays while a simulation light of that area is on.",
+          "ambience_media": "One line per player, `media_player.living_room = http://radio.example/stream`. A line without a player is used for every player without a line of its own.",
+          "ambience_volume": "Volume while it plays (0–1).",
+          "ambience_quiet_after": "No sound from this time until noon."
+        }
+      },
+      "deterrence": {
+        "title": "Deterrence",
+        "description": "When a trigger outside detects someone at night during a real absence, the house reacts like people waking up: a light of that facade, then the lights toward the door, for a few minutes. Lights only: never sirens, locks or doors. Add triggers from the integration page (Add deterrence trigger).",
+        "data": {
+          "deterrence_enabled": "Deterrence",
+          "deterrence_cooldown_min": "Cooldown per trigger (minutes)",
+          "deterrence_max_per_night": "Reactions per night at most"
+        },
+        "data_description": {
+          "deterrence_enabled": "Off by default. Active while it is dark: from the evening darkness decision (or sunset) until it is day, whether or not the simulation window is running.",
+          "deterrence_cooldown_min": "A trigger does not react again until this long after its last reaction.",
+          "deterrence_max_per_night": "Further detections are ignored until the next night."
+        }
       }
     },
     "error": {
@@ -246,7 +299,11 @@
       "activate_states_required": "Select at least one alarm state.",
       "darkness_range": "The latest start must not be before the earliest start.",
       "calendar_is_workday": "This calendar comes from the Workday integration and its events are workdays, not holidays. Choose it as the Workday sensor instead.",
-      "nonworkday_start_not_later": "With Later, the non-workday wake-up must start later than the wake-up start."
+      "nonworkday_start_not_later": "With Later, the non-workday wake-up must start later than the wake-up start.",
+      "cover_forbidden_class": "Awnings, garage doors, gates and doors cannot be simulated: awnings can be damaged by wind, and doors, garages and gates are a security risk.",
+      "ambience_media_required": "Say what each media player should play.",
+      "ambience_media_invalid": "Each line must be `media_player.name = media id` for one of the chosen players, or just a media id for all of them.",
+      "ambience_player_area": "Every media player must be in an area."
     }
   },
   "config_subentries": {
@@ -291,6 +348,46 @@
         "same_origin_destination": "The origin and the destination must be different lights.",
         "duplicate_light": "Each light can appear only once in a route."
       }
+    },
+    "deterrence_trigger": {
+      "entry_type": "Deterrence trigger",
+      "initiate_flow": {
+        "user": "Add deterrence trigger"
+      },
+      "step": {
+        "user": {
+          "title": "Deterrence trigger",
+          "description": "A sensor outside (motion, occupancy or presence) or an event entity such as a doorbell. When it fires at night during a real absence, a light of its facade goes on, then the path lights in order.",
+          "data": {
+            "trigger_entity": "Trigger",
+            "facade": "Facade",
+            "path": "Path"
+          },
+          "data_description": {
+            "trigger_entity": "A binary sensor with device class motion, occupancy or presence, or an event entity.",
+            "facade": "One off simulation light of this facade goes on first.",
+            "path": "Lights toward the door, in order, for example the hallway."
+          }
+        },
+        "reconfigure": {
+          "title": "Deterrence trigger",
+          "description": "A sensor outside (motion, occupancy or presence) or an event entity such as a doorbell. When it fires at night during a real absence, a light of its facade goes on, then the path lights in order.",
+          "data": {
+            "trigger_entity": "Trigger",
+            "facade": "Facade",
+            "path": "Path"
+          },
+          "data_description": {
+            "trigger_entity": "A binary sensor with device class motion, occupancy or presence, or an event entity.",
+            "facade": "One off simulation light of this facade goes on first.",
+            "path": "Lights toward the door, in order, for example the hallway."
+          }
+        }
+      },
+      "error": {
+        "trigger_not_allowed": "Use a motion, occupancy or presence binary sensor, or an event entity.",
+        "duplicate_light": "Each light can appear only once in the path."
+      }
     }
   },
   "entity": {
@@ -300,6 +397,9 @@
       },
       "dream_night": {
         "name": "Dream a night"
+      },
+      "test_deterrence": {
+        "name": "Test deterrence"
       }
     },
     "switch": {
@@ -586,6 +686,26 @@
             }
           }
         }
+      },
+      "last_deterrence": {
+        "name": "Last deterrence",
+        "state_attributes": {
+          "trigger": {
+            "name": "Trigger"
+          },
+          "facade": {
+            "name": "Facade"
+          },
+          "lights": {
+            "name": "Lights"
+          },
+          "reactions_tonight": {
+            "name": "Reactions tonight"
+          },
+          "active": {
+            "name": "Active"
+          }
+        }
       }
     }
   },
@@ -625,6 +745,18 @@
       "options": {
         "later": "Later",
         "skip": "Do not simulate"
+      }
+    },
+    "covers_mode": {
+      "options": {
+        "schedule": "Schedule",
+        "learned": "Learned"
+      }
+    },
+    "facade": {
+      "options": {
+        "front": "Front",
+        "rear": "Rear"
       }
     }
   },
@@ -741,10 +873,16 @@
       "message": "Dream cannot plan tonight yet ({reason}). It needs enough learned nights of tonight's day type."
     },
     "night_report": {
-      "message": "Last night ({mode}): {lights} lights switched {switches} times. Rooms: {rooms}. Realism: {score}. Lights that did not obey: {failures}."
+      "message": "Last night ({mode}): {lights} lights switched {switches} times. Rooms: {rooms}. Realism: {score}. Lights that did not obey: {failures}. Covers moved: {covers}. Audio sessions: {ambience}. Deterrence reactions: {deterrence}."
     },
     "daylight": {
       "message": "It is day: LumaPresence does not switch lights on while it is light."
+    },
+    "no_deterrence_triggers": {
+      "message": "There are no deterrence triggers. Add one from the integration page."
+    },
+    "deterrence_running": {
+      "message": "A deterrence reaction is already running."
     }
   }
 }

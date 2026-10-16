@@ -73,9 +73,21 @@ CONF_ORIGIN: Final = "origin"
 CONF_PATH: Final = "path"
 CONF_DESTINATION: Final = "destination"
 
-# Which part of LumaPresence turned a light on
+# Deterrence triggers (config subentries, v0.8.0)
+SUBENTRY_DETERRENCE: Final = "deterrence_trigger"
+CONF_TRIGGER_ENTITY: Final = "trigger_entity"
+CONF_FACADE: Final = "facade"
+FACADE_FRONT: Final = "front"
+FACADE_REAR: Final = "rear"
+FACADES: Final = [FACADE_FRONT, FACADE_REAR]
+TRIGGER_DEVICE_CLASSES: Final = ["occupancy", "motion", "presence"]
+
+# Which part of LumaPresence turned a light on (or moved a cover)
 OWNER_SIMULATION: Final = "simulation"
 OWNER_SEQUENCE: Final = "sequence"
+OWNER_DETERRENCE: Final = "deterrence"
+OWNER_COVERS: Final = "covers"
+OWNER_AMBIENCE: Final = "ambience"
 
 # Steps of a running route
 STEP_ORIGIN: Final = "origin"
@@ -150,6 +162,56 @@ BAD_WEATHER_CONDITIONS: Final = frozenset(
 )
 COLD_BELOW_C: Final = 8.0
 UNRESPONSIVE_FAILURES: Final = 3
+
+# Covers (v0.8.0)
+CONF_COVERS: Final = "covers"
+CONF_COVERS_MODE: Final = "covers_mode"
+CONF_COVERS_OPEN_POSITION: Final = "covers_open_position"
+CONF_COVERS_OPEN_WORKDAY: Final = "covers_open_workday"
+CONF_COVERS_OPEN_NONWORKDAY: Final = "covers_open_nonworkday"
+CONF_COVERS_CLOSE_DELAY: Final = "covers_close_delay_min"
+COVERS_LEARNED: Final = "learned"
+COVERS_SCHEDULE: Final = "schedule"
+COVERS_MODES: Final = [COVERS_SCHEDULE, COVERS_LEARNED]
+DEFAULT_COVERS_MODE: Final = COVERS_SCHEDULE
+DEFAULT_COVERS_OPEN_POSITION: Final = 100
+DEFAULT_COVERS_OPEN_WORKDAY: Final = "08:00:00"
+DEFAULT_COVERS_OPEN_NONWORKDAY: Final = "09:30:00"
+DEFAULT_COVERS_CLOSE_DELAY: Final = 20
+# Never simulated: awnings can be damaged by wind; doors, garages and gates
+# are a security risk.
+FORBIDDEN_COVER_CLASSES: Final = frozenset({"awning", "garage", "gate", "door"})
+COVERS_MIN_DAYS: Final = 7
+# Covers take a while to move: how long to wait for them to obey.
+COVER_VERIFY_TIMEOUT: Final = 90
+# Why each cover moves when it does
+COVER_SCHEDULE: Final = "schedule"
+COVER_REPLAY: Final = "replay"
+COVER_DREAM: Final = "dream"
+COVER_NOT_ENOUGH_DAYS: Final = "schedule_not_enough_days"
+COVER_OPEN: Final = "open"
+COVER_CLOSE: Final = "close"
+
+# Ambience (v0.8.0)
+CONF_AMBIENCE_PLAYERS: Final = "ambience_players"
+CONF_AMBIENCE_MEDIA: Final = "ambience_media"
+CONF_AMBIENCE_VOLUME: Final = "ambience_volume"
+CONF_AMBIENCE_QUIET_AFTER: Final = "ambience_quiet_after"
+DEFAULT_AMBIENCE_VOLUME: Final = 0.15
+DEFAULT_AMBIENCE_QUIET_AFTER: Final = "23:30:00"
+
+# Deterrence (v0.8.0)
+CONF_DETERRENCE_ENABLED: Final = "deterrence_enabled"
+CONF_DETERRENCE_COOLDOWN: Final = "deterrence_cooldown_min"
+CONF_DETERRENCE_MAX: Final = "deterrence_max_per_night"
+DEFAULT_DETERRENCE_ENABLED: Final = False
+DEFAULT_DETERRENCE_COOLDOWN: Final = 10
+DEFAULT_DETERRENCE_MAX: Final = 6
+DETERRENCE_FIRST_DELAY_S: Final = (2.0, 6.0)
+DETERRENCE_PATH_DELAY_S: Final = (10.0, 25.0)
+DETERRENCE_STEP_DELAY_S: Final = (2.0, 5.0)
+DETERRENCE_HOLD_MIN: Final = (3.0, 8.0)
+EVENT_DETERRENCE: Final = f"{DOMAIN}_deterrence"
 # Why the evening window starts when it does
 START_DARKNESS: Final = "darkness"
 START_SUNSET: Final = "sunset"

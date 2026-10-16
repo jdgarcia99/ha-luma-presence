@@ -43,10 +43,13 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    COVER_CLOSE,
+    COVER_VERIFY_TIMEOUT,
     DEFAULT_VERIFY_TIMEOUT,
     DOMAIN,
     EVENT_ACTION,
     OWN_CONTEXT_MAXLEN,
+    OWNER_COVERS,
     OWNER_SIMULATION,
     STORE_VERSION,
     UNRESPONSIVE_FAILURES,
@@ -56,6 +59,9 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 _IGNORED_STATES = (STATE_UNAVAILABLE, STATE_UNKNOWN)
+# cover.CoverEntityFeature.SET_POSITION
+_COVER_SET_POSITION = 4
+_COVER_POSITION_TOLERANCE = 2
 
 
 class LightController:
@@ -198,6 +204,13 @@ class LightController:
         return owned[0] if owned else None
 
     @callback
+    def transfer(self, entity_id: str, owner: str) -> None:
+        """Hand an owned light over to another part of LumaPresence."""
+        if (owned := self._owned.get(entity_id)) is not None:
+            self._owned[entity_id] = (owner, owned[1])
+            self._save()
+
+    @callback
     def release(self, owner: str | None = None) -> None:
         """Forget ownership without touching the lights."""
         for entity_id in self.owned(owner):
@@ -286,6 +299,100 @@ class LightController:
             )
         return True
 
+    async def async_call(
+        self, domain: str, service: str, data: dict[str, Any], **record: Any
+    ) -> bool:
+        """Call a service with LumaPresence's own context (media players).
+
+        `record` (with `entity_id` and `action`) is published as an action.
+        """
+        context = Context()
+        self._remember_context(context.id)
+        try:
+            await self.hass.services.async_call(
+                domain, service, data, blocking=True, context=context
+            )
+        except HomeAssistantError as err:
+            _LOGGER.warning("Could not call %s.%s: %s", domain, service, err)
+            return False
+        if record:
+            self.record(record.pop("entity_id", None), record.pop("action"), **record)
+        return True
+
+    async def async_move_cover(
+        self, entity_id: str, action: str, position: int = 100, **extra: Any
+    ) -> bool:
+        """Open a cover (to `position`) or close it.
+
+        Covers are never blocked by the daylight guard: opening them by day is
+        the point. Like lights, they are verified in the background.
+        """
+        state = self.hass.states.get(entity_id)
+        features = int(state.attributes.get("supported_features", 0)) if state else 0
+        if action == COVER_CLOSE:
+            service, data, value = "close_cover", {}, "closed"
+        elif position < 100 and features & _COVER_SET_POSITION:
+            service, data, value = "set_cover_position", {"position": position}, str(position)
+        else:
+            service, data, value = "open_cover", {}, "open"
+        context = Context()
+        self._remember_context(context.id)
+        self._owned[entity_id] = (OWNER_COVERS, context.id)
+        call = {ATTR_ENTITY_ID: entity_id, **data}
+        try:
+            await self.hass.services.async_call(
+                "cover", service, call, blocking=True, context=context
+            )
+        except HomeAssistantError as err:
+            _LOGGER.warning("Could not move %s: %s", entity_id, err)
+            self._failed(entity_id, action != COVER_CLOSE, OWNER_COVERS)
+            return False
+        self.record(entity_id, value, kind="cover", **extra)
+        self._save()
+        if self.verify_timeout > 0:
+            expected = (
+                0 if action == COVER_CLOSE else position if service == "set_cover_position" else 100
+            )
+            self.hass.async_create_background_task(
+                self._async_verify_cover(entity_id, service, call, expected, action),
+                f"{DOMAIN}_verify_{entity_id}",
+            )
+        return True
+
+    def _cover_reached(self, entity_id: str, expected: int) -> bool:
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("opening", "closing", *_IGNORED_STATES):
+            return False
+        position = state.attributes.get("current_position")
+        if position is not None:
+            return abs(int(position) - expected) <= _COVER_POSITION_TOLERANCE
+        return state.state == ("closed" if expected == 0 else "open")
+
+    async def _async_verify_cover(
+        self, entity_id: str, service: str, call: dict[str, Any], expected: int, action: str
+    ) -> None:
+        """Like lights, with a longer wait: covers take a while to move."""
+        timeout = max(self.verify_timeout, COVER_VERIFY_TIMEOUT)
+        if await self._async_wait_until(
+            entity_id, lambda: self._cover_reached(entity_id, expected), timeout
+        ):
+            return
+        context = Context()
+        self._remember_context(context.id)
+        try:
+            await self.hass.services.async_call(
+                "cover", service, call, blocking=True, context=context
+            )
+        except HomeAssistantError:
+            pass
+        else:
+            if await self._async_wait_until(
+                entity_id, lambda: self._cover_reached(entity_id, expected), timeout
+            ):
+                return
+        _LOGGER.warning("%s did not %s", entity_id, action)
+        self._failed(entity_id, action != COVER_CLOSE, OWNER_COVERS)
+
     async def _async_verify(self, entity_id: str, turn_on: bool, owner: str) -> None:
         """Wait for the expected state; retry once; then count a failure."""
         expected = STATE_ON if turn_on else STATE_OFF
@@ -310,21 +417,28 @@ class LightController:
         self._failed(entity_id, turn_on, owner)
 
     async def _async_wait_for(self, entity_id: str, expected: str) -> bool:
-        reached = asyncio.Event()
+        def _reached() -> bool:
+            state = self.hass.states.get(entity_id)
+            return state is not None and state.state == expected
+
+        return await self._async_wait_until(entity_id, _reached, self.verify_timeout)
+
+    async def _async_wait_until(
+        self, entity_id: str, reached: Callable[[], bool], timeout: float
+    ) -> bool:
+        changed = asyncio.Event()
 
         @callback
-        def _changed(event: Event[EventStateChangedData]) -> None:
-            new = event.data["new_state"]
-            if new is not None and new.state == expected:
-                reached.set()
+        def _changed(_event: Event[EventStateChangedData]) -> None:
+            if reached():
+                changed.set()
 
         unsub = async_track_state_change_event(self.hass, [entity_id], _changed)
         try:
-            state = self.hass.states.get(entity_id)
-            if state is not None and state.state == expected:
+            if reached():
                 return True
-            async with asyncio.timeout(self.verify_timeout):
-                await reached.wait()
+            async with asyncio.timeout(timeout):
+                await changed.wait()
             return True
         except TimeoutError:
             return False

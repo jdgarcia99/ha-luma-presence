@@ -45,6 +45,7 @@ async def async_setup_entry(
             TonightPlanSensor(entry),
             DreamModelSensor(entry),
             ContextSensor(entry),
+            LastDeterrenceSensor(entry),
             LastActionSensor(entry),
             LearningDaysSensor(entry),
             SimulationLightsSensor(entry),
@@ -183,7 +184,7 @@ class TonightPlanSensor(LumaEntity, SensorEntity):
     """Tonight's plan (Replay or Dream), or a Dream preview."""
 
     _attr_icon = "mdi:timeline-clock-outline"
-    _unrecorded_attributes = frozenset({"timeline", "rooms", "summary"})
+    _unrecorded_attributes = frozenset({"timeline", "rooms", "summary", "covers"})
 
     def __init__(self, entry: LumaConfigEntry) -> None:
         """Initialize the sensor."""
@@ -202,8 +203,13 @@ class TonightPlanSensor(LumaEntity, SensorEntity):
         """Return the compact timeline, rooms and summary."""
         player = self._runtime.player
         plan = player.shown if player else None
+        # Cover moves are planned whatever the mode (and without a plan).
+        covers = self._runtime.covers
+        cover_moves = (
+            [move.as_dict() for move in covers.upcoming()] if covers and covers.covers else []
+        )
         if plan is None:
-            return {"preview": False}
+            return {"preview": False, "covers": cover_moves}
         return {
             "night": plan.night.isoformat(),
             "source": plan.source,
@@ -211,6 +217,7 @@ class TonightPlanSensor(LumaEntity, SensorEntity):
             "summary": plan.summary(),
             "rooms": plan.rooms,
             "timeline": plan.compact(),
+            "covers": cover_moves,
         }
 
 
@@ -302,6 +309,36 @@ class ContextSensor(LumaEntity, SensorEntity):
         info = self._info()
         info.pop("holiday_changed")
         return info
+
+
+class LastDeterrenceSensor(LumaEntity, SensorEntity):
+    """Last deterrence reaction."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:shield-home-outline"
+
+    def __init__(self, entry: LumaConfigEntry) -> None:
+        """Initialize the sensor."""
+        super().__init__(entry, "last_deterrence", "sensor")
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return when the last reaction started."""
+        deterrence = self._runtime.deterrence
+        return deterrence.last["time"] if deterrence and deterrence.last else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the trigger, facade, lights and tonight's reactions."""
+        deterrence = self._runtime.deterrence
+        last = (deterrence.last if deterrence else None) or {}
+        return {
+            "trigger": last.get("trigger"),
+            "facade": last.get("facade"),
+            "lights": list(last.get("lights", [])),
+            "reactions_tonight": deterrence.reactions_tonight if deterrence else 0,
+            "active": deterrence.active() if deterrence else False,
+        }
 
 
 class LastActionSensor(LumaEntity, SensorEntity):

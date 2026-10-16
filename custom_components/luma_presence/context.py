@@ -28,6 +28,8 @@ from homeassistant.const import (
     ATTR_TEMPERATURE,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
+    SUN_EVENT_SUNRISE,
+    SUN_EVENT_SUNSET,
     UnitOfTemperature,
 )
 from homeassistant.core import (
@@ -43,6 +45,7 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_change,
 )
+from homeassistant.helpers.sun import get_astral_event_date
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -71,6 +74,7 @@ from .const import (
     START_DARKNESS,
     START_PENDING,
     START_SENSOR_UNAVAILABLE,
+    START_SUNSET,
 )
 from .plan import day_type, is_workday
 
@@ -204,6 +208,37 @@ class ContextProvider:
     def daylight(self) -> bool:
         """True when the illuminance sensor says it is day (daylight guard)."""
         return self.darkness is not None and self.darkness.daylight()
+
+    def evening_decision(self, day: date) -> tuple[datetime, str] | None:
+        """When the evening of a date gets dark, and why: the moment the
+        evening window would start (darkness, clamped), else sunset.
+
+        While it is `pending` the time is provisional (the latest bound).
+        """
+        sunset = get_astral_event_date(self.hass, SUN_EVENT_SUNSET, day)
+        if sunset is None:
+            return None
+        if self.darkness is not None:
+            return self.darkness.evening_start(day, sunset)
+        return sunset, START_SUNSET
+
+    def dark_now(self) -> bool:
+        """Night: from the evening decision until the daylight guard ends it
+        (with a readable sensor), or until sunrise (without one)."""
+        if self.daylight():
+            return False
+        now = dt_util.utcnow()
+        local = dt_util.as_local(now)
+        decision = self.evening_decision(local.date())
+        if decision is not None and decision[1] != START_PENDING and now >= decision[0]:
+            return True
+        if local.time() >= NOON:
+            return False  # the evening has not got dark yet
+        # Small hours and morning of the night that began yesterday.
+        if self.darkness is not None and self.darkness.available:
+            return True
+        sunrise = get_astral_event_date(self.hass, SUN_EVENT_SUNRISE, local.date())
+        return sunrise is not None and now < sunrise
 
     @property
     def holidays(self) -> set[date] | None:

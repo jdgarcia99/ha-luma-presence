@@ -1,6 +1,7 @@
 """Morning report: a summary of last night, at sunrise.
 
-After a night in which the simulation or a night sequence ran, the
+After a night in which the simulation, a night sequence, a cover, an
+ambience player or a deterrence reaction did something, the
 ``luma_presence_night_report`` event is fired with what happened and, if a
 notify target is configured, a short translated summary is sent.
 """
@@ -19,7 +20,7 @@ from homeassistant.helpers.event import async_track_sunrise
 from homeassistant.helpers.translation import async_get_translations
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, EVENT_ACTION, EVENT_NIGHT_REPORT
+from .const import DOMAIN, EVENT_ACTION, EVENT_NIGHT_REPORT, OWNER_AMBIENCE
 from .dream import DreamEngine
 from .light_control import LightController
 from .models import LumaSettings
@@ -30,7 +31,8 @@ _LOGGER = logging.getLogger(__name__)
 _STARTS = ("simulation_started", "sequence_started")
 _DEFAULT_TEXT = (
     "Last night ({mode}): {lights} lights switched {switches} times, rooms: {rooms}. "
-    "Realism: {score}. Failures: {failures}."
+    "Realism: {score}. Failures: {failures}. Covers moved: {covers}. "
+    "Audio sessions: {ambience}. Deterrence reactions: {deterrence}."
 )
 
 
@@ -62,6 +64,10 @@ class NightReporter:
         self._active = False
         self._lights: set[str] = set()
         self._switches = 0
+        self._cover_moves = 0
+        self._covers: set[str] = set()
+        self._ambience_sessions = 0
+        self._deterrence = 0
 
     @callback
     def async_start(self) -> None:
@@ -81,8 +87,20 @@ class NightReporter:
         data = event.data
         if data.get("entry_id") != self._entry_id:
             return
-        if data.get("action") in _STARTS:
+        action = data.get("action")
+        if action in _STARTS:
             self._active = True
+        elif action == "deterrence":
+            self._active = True
+            self._deterrence += 1
+        elif data.get("kind") == "cover":
+            self._active = True
+            self._cover_moves += 1
+            self._covers.add(data["entity_id"])
+        elif data.get("kind") == OWNER_AMBIENCE:
+            if action == "ambience_started":
+                self._active = True
+                self._ambience_sessions += 1
         elif data.get("entity_id"):
             self._switches += 1
             if data.get("action") == "on":
@@ -121,6 +139,10 @@ class NightReporter:
             "switches": self._switches,
             "failures": dict(self._controller.failure_counts),
             "context": self._context(),
+            "cover_moves": self._cover_moves,
+            "covers": sorted(self._covers),
+            "ambience_sessions": self._ambience_sessions,
+            "deterrence_reactions": self._deterrence,
         }
 
     def _context(self) -> list[str]:
@@ -145,6 +167,9 @@ class NightReporter:
                 f"{entity_id} ×{count}" for entity_id, count in payload["failures"].items()
             )
             or "0",
+            covers=payload["cover_moves"],
+            ambience=payload["ambience_sessions"],
+            deterrence=payload["deterrence_reactions"],
         )
         target = str(self._notify_target)
         try:
