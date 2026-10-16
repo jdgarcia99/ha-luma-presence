@@ -145,8 +145,8 @@ def test_night_type_with_holidays() -> None:
     assert not is_workday(date(2026, 10, 17))  # Saturday
 
 
-def test_holidays_from_events() -> None:
-    """All-day events and events covering midday are holidays."""
+async def test_holidays_from_events(hass: HomeAssistant, fake_lights) -> None:
+    """All-day events and events covering local midday (Europe/Madrid) are holidays."""
     holidays = holidays_from_events(
         [
             {"start": "2026-10-12", "end": "2026-10-13"},
