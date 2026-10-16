@@ -39,6 +39,7 @@ from .const import (
     CONF_DETERRENCE_COOLDOWN,
     CONF_DETERRENCE_ENABLED,
     CONF_DETERRENCE_MAX,
+    CONF_EVENT_TYPES,
     CONF_FACADE,
     CONF_FRONT_LIGHTS,
     CONF_LIGHTS,
@@ -90,6 +91,14 @@ class DeterrenceTrigger:
     entity_id: str
     facade: str
     path: tuple[str, ...]
+    # Event entities: only these event types (empty: any event).
+    event_types: tuple[str, ...] = ()
+
+    def accepts(self, state: Any) -> bool:
+        """An event entity reacts only to the chosen event types, if any."""
+        if not self.event_types or not self.entity_id.startswith("event."):
+            return True
+        return state.attributes.get("event_type") in self.event_types
 
     @classmethod
     def from_data(
@@ -102,6 +111,7 @@ class DeterrenceTrigger:
             entity_id=data[CONF_TRIGGER_ENTITY],
             facade=data.get(CONF_FACADE, FACADE_FRONT),
             path=tuple(data.get(CONF_PATH) or ()),
+            event_types=tuple(data.get(CONF_EVENT_TYPES) or ()),
         )
 
 
@@ -220,7 +230,10 @@ class DeterrenceEngine:
             fired = old.state == STATE_OFF and new.state == STATE_ON
         if not fired:
             return
-        trigger = next((t for t in self.triggers if t.entity_id == entity_id), None)
+        trigger = next(
+            (t for t in self.triggers if t.entity_id == entity_id and t.accepts(new)),
+            None,
+        )
         if trigger is None or not self.active():
             return
         now = dt_util.utcnow()

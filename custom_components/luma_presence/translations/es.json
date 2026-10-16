@@ -382,6 +382,16 @@
             "facade": "Primero se enciende una luz de simulación apagada de esta fachada.",
             "path": "Luces hacia la puerta, en orden, por ejemplo el pasillo."
           }
+        },
+        "event_types": {
+          "title": "Tipos de evento",
+          "description": "Qué eventos de {entity} hacen reaccionar a la casa. Déjalo vacío para reaccionar a cualquier evento. Con cámaras (por ejemplo, la detección inteligente de UniFi Protect) elige solo personas: el movimiento genérico también salta con coches y animales.",
+          "data": {
+            "event_types": "Reaccionar solo a"
+          },
+          "data_description": {
+            "event_types": "Se ofrecen los tipos de evento que informa esta entidad; también puedes escribir otros. Vacío: cualquier evento."
+          }
         }
       },
       "error": {

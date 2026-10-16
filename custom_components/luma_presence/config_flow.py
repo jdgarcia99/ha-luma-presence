@@ -16,6 +16,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.config_entries import (
+    SOURCE_RECONFIGURE,
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
@@ -79,6 +80,7 @@ from .const import (
     CONF_DREAM_MAX_SIMILARITY,
     CONF_DWELL_MAX,
     CONF_DWELL_MIN,
+    CONF_EVENT_TYPES,
     CONF_FACADE,
     CONF_FRONT_LIGHTS,
     CONF_HOLIDAY_CALENDAR,
@@ -1132,10 +1134,17 @@ def _validate_trigger(hass: HomeAssistant, user_input: Mapping[str, Any]) -> dic
 
 
 def _trigger_data(user_input: Mapping[str, Any]) -> dict[str, Any]:
+    entity_id = user_input[CONF_TRIGGER_ENTITY]
     return {
-        CONF_TRIGGER_ENTITY: user_input[CONF_TRIGGER_ENTITY],
+        CONF_TRIGGER_ENTITY: entity_id,
         CONF_FACADE: user_input.get(CONF_FACADE, FACADE_FRONT),
         CONF_PATH: list(user_input.get(CONF_PATH) or []),
+        # Only event entities are filtered by event type.
+        CONF_EVENT_TYPES: (
+            [str(t) for t in user_input.get(CONF_EVENT_TYPES) or []]
+            if str(entity_id).startswith("event.")
+            else []
+        ),
     }
 
 
@@ -1144,8 +1153,37 @@ def _trigger_title(hass: HomeAssistant, entity_id: str) -> str:
     return state.name if state is not None else entity_id
 
 
+def _event_types_schema(hass: HomeAssistant, entity_id: str, current: list[str]) -> vol.Schema:
+    """The entity's own event types as suggestions; others can be typed."""
+    state = hass.states.get(entity_id)
+    offered = [str(t) for t in (state.attributes.get("event_types") or [])] if state else []
+    options = list(dict.fromkeys([*offered, *current]))
+    return vol.Schema(
+        {
+            vol.Optional(CONF_EVENT_TYPES, description={"suggested_value": current}): (
+                SelectSelector(
+                    SelectSelectorConfig(
+                        options=options,
+                        multiple=True,
+                        custom_value=True,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                )
+            )
+        }
+    )
+
+
 class DeterrenceTriggerSubentryFlow(ConfigSubentryFlow):
-    """Add or edit a deterrence trigger."""
+    """Add or edit a deterrence trigger.
+
+    For an event entity (a doorbell, a camera's smart detection) a second
+    step lets the trigger react only to some event types.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the flow."""
+        self._data: dict[str, Any] = {}
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -1155,10 +1193,10 @@ class DeterrenceTriggerSubentryFlow(ConfigSubentryFlow):
         if user_input is not None:
             errors = _validate_trigger(self.hass, user_input)
             if not errors:
-                return self.async_create_entry(
-                    title=_trigger_title(self.hass, user_input[CONF_TRIGGER_ENTITY]),
-                    data=_trigger_data(user_input),
-                )
+                self._data = _trigger_data(user_input)
+                if self._data[CONF_TRIGGER_ENTITY].startswith("event."):
+                    return await self.async_step_event_types()
+                return self._async_save()
         return self.async_show_form(
             step_id="user",
             data_schema=self.add_suggested_values_to_schema(_TRIGGER_SCHEMA, user_input or {}),
@@ -1174,13 +1212,12 @@ class DeterrenceTriggerSubentryFlow(ConfigSubentryFlow):
         if user_input is not None:
             errors = _validate_trigger(self.hass, user_input)
             if not errors:
-                entry = self.hass.config_entries.async_get_known_entry(self.handler[0])
-                return self.async_update_and_abort(
-                    entry,
-                    subentry,
-                    title=_trigger_title(self.hass, user_input[CONF_TRIGGER_ENTITY]),
-                    data=_trigger_data(user_input),
+                self._data = _trigger_data(
+                    {CONF_EVENT_TYPES: subentry.data.get(CONF_EVENT_TYPES), **user_input}
                 )
+                if self._data[CONF_TRIGGER_ENTITY].startswith("event."):
+                    return await self.async_step_event_types()
+                return self._async_save()
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=self.add_suggested_values_to_schema(
@@ -1188,3 +1225,29 @@ class DeterrenceTriggerSubentryFlow(ConfigSubentryFlow):
             ),
             errors=errors,
         )
+
+    async def async_step_event_types(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Event types the trigger reacts to (empty: any event)."""
+        if user_input is not None:
+            self._data[CONF_EVENT_TYPES] = [str(t) for t in user_input.get(CONF_EVENT_TYPES) or []]
+            return self._async_save()
+        return self.async_show_form(
+            step_id="event_types",
+            data_schema=_event_types_schema(
+                self.hass, self._data[CONF_TRIGGER_ENTITY], self._data[CONF_EVENT_TYPES]
+            ),
+            description_placeholders={
+                "entity": _trigger_title(self.hass, self._data[CONF_TRIGGER_ENTITY])
+            },
+        )
+
+    def _async_save(self) -> SubentryFlowResult:
+        title = _trigger_title(self.hass, self._data[CONF_TRIGGER_ENTITY])
+        if self.source == SOURCE_RECONFIGURE:
+            entry = self.hass.config_entries.async_get_known_entry(self.handler[0])
+            return self.async_update_and_abort(
+                entry, self._get_reconfigure_subentry(), title=title, data=self._data
+            )
+        return self.async_create_entry(title=title, data=self._data)

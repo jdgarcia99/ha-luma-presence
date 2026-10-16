@@ -35,6 +35,7 @@ from custom_components.luma_presence.const import (
     CONF_DETERRENCE_COOLDOWN,
     CONF_DETERRENCE_ENABLED,
     CONF_DETERRENCE_MAX,
+    CONF_EVENT_TYPES,
     CONF_FACADE,
     CONF_FRONT_LIGHTS,
     CONF_LIGHTS,
@@ -53,6 +54,7 @@ from custom_components.luma_presence.const import (
     SUBENTRY_DETERRENCE,
 )
 from custom_components.luma_presence.covers import cover_value, observations
+from custom_components.luma_presence.deterrence import DeterrenceTrigger
 
 from .conftest import until
 from .test_v0_2_0 import OPTIONS
@@ -717,7 +719,7 @@ async def test_deterrence_trigger_subentry(
     entry = await _setup(hass, freezer)
     hass.states.async_set("binary_sensor.puerta", STATE_OFF, {"device_class": "door"})
     _porch(hass, STATE_OFF)
-    hass.states.async_set(DOORBELL, "unknown")
+    hass.states.async_set(DOORBELL, "unknown", {"event_types": ["ring"]})
     manager = hass.config_entries.subentries
     result = await manager.async_init(
         (entry.entry_id, SUBENTRY_DETERRENCE), context={"source": "user"}
@@ -735,9 +737,92 @@ async def test_deterrence_trigger_subentry(
             CONF_PATH: ["light.salon"],
         },
     )
+    # An event entity: its own event types are offered.
+    assert result["step_id"] == "event_types"
+    selector = result["data_schema"].schema[CONF_EVENT_TYPES]
+    assert selector.config["options"] == ["ring"]
+    result = await manager.async_configure(
+        result["flow_id"], {CONF_EVENT_TYPES: ["ring"]}
+    )
     assert result["type"] == "create_entry"
     await hass.async_block_till_done()
     triggers = entry.runtime_data.deterrence.triggers
-    assert [(t.entity_id, t.facade, t.path) for t in triggers] == [
-        (DOORBELL, "rear", ("light.salon",))
+    assert [(t.entity_id, t.facade, t.path, t.event_types) for t in triggers] == [
+        (DOORBELL, "rear", ("light.salon",), ("ring",))
     ]
+
+    # A binary sensor has no event types and no second step.
+    result = await manager.async_init(
+        (entry.entry_id, SUBENTRY_DETERRENCE), context={"source": "user"}
+    )
+    result = await manager.async_configure(
+        result["flow_id"],
+        {CONF_TRIGGER_ENTITY: PORCH, CONF_FACADE: "front", CONF_EVENT_TYPES: ["x"]},
+    )
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_EVENT_TYPES] == []
+
+
+CAMERA = "event.camara_entrada"
+
+
+def _camera(hass: HomeAssistant, stamp: int, event_type: str) -> None:
+    hass.states.async_set(
+        CAMERA,
+        f"2026-10-15T23:00:{stamp:02d}.000+00:00",
+        {"event_types": ["person", "vehicle", "animal"], "event_type": event_type},
+    )
+
+
+async def test_deterrence_event_type_filter(
+    hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory, waits
+) -> None:
+    """With event types, only those events react; without them, any event."""
+    waits["release"].set()
+    _camera(hass, 0, "person")
+    camera = {
+        CONF_TRIGGER_ENTITY: CAMERA,
+        CONF_FACADE: "front",
+        CONF_EVENT_TYPES: ["person"],
+    }
+    entry = await _setup(
+        hass,
+        freezer,
+        {**DETERRENCE, CONF_DETERRENCE_COOLDOWN: 0},
+        hour=23,
+        triggers=[camera],
+    )
+    deterrence = entry.runtime_data.deterrence
+    for stamp, kind in ((1, "vehicle"), (2, "animal")):
+        _camera(hass, stamp, kind)
+        await hass.async_block_till_done()
+    assert deterrence.reactions_tonight == 0  # cars and animals are ignored
+    _camera(hass, 3, "person")
+    await until(
+        hass, lambda: deterrence.reactions_tonight == 1 and not deterrence.running
+    )
+    await hass.config_entries.async_remove(entry.entry_id)
+
+    # No event types: any event reacts.
+    entry = await _setup(
+        hass,
+        freezer,
+        {**DETERRENCE, CONF_DETERRENCE_COOLDOWN: 0},
+        hour=23,
+        triggers=[{**camera, CONF_EVENT_TYPES: []}],
+    )
+    deterrence = entry.runtime_data.deterrence
+    _camera(hass, 4, "vehicle")
+    await until(hass, lambda: deterrence.reactions_tonight == 1)
+
+
+def test_trigger_accepts() -> None:
+    """The filter applies to event entities only."""
+    state = type("State", (), {"attributes": {"event_type": "vehicle"}})()
+    camera = DeterrenceTrigger("1", "cam", CAMERA, "front", (), ("person",))
+    assert not camera.accepts(state)
+    assert DeterrenceTrigger("2", "cam", CAMERA, "front", ()).accepts(state)
+    # A binary sensor ignores any stored event types.
+    assert DeterrenceTrigger("3", "porch", PORCH, "front", (), ("person",)).accepts(
+        state
+    )

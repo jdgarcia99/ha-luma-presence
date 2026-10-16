@@ -77,6 +77,8 @@ CONF_DESTINATION: Final = "destination"
 SUBENTRY_DETERRENCE: Final = "deterrence_trigger"
 CONF_TRIGGER_ENTITY: Final = "trigger_entity"
 CONF_FACADE: Final = "facade"
+# Event entities only: react to these event types (empty: any event).
+CONF_EVENT_TYPES: Final = "event_types"
 FACADE_FRONT: Final = "front"
 FACADE_REAR: Final = "rear"
 FACADES: Final = [FACADE_FRONT, FACADE_REAR]

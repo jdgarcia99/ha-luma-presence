@@ -382,6 +382,16 @@
             "facade": "One off simulation light of this facade goes on first.",
             "path": "Lights toward the door, in order, for example the hallway."
           }
+        },
+        "event_types": {
+          "title": "Event types",
+          "description": "Which events of {entity} make the house react. Leave it empty to react to any event. With cameras (for example UniFi Protect smart detection) choose only people: generic motion also fires for cars and animals.",
+          "data": {
+            "event_types": "React only to"
+          },
+          "data_description": {
+            "event_types": "The event types this entity reports are offered; you can also type others. Empty: any event."
+          }
         }
       },
       "error": {
