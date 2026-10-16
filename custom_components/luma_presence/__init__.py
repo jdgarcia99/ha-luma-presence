@@ -13,6 +13,7 @@ from homeassistant.core import (
     ServiceCall,
     ServiceResponse,
     SupportsResponse,
+    callback,
 )
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import (
@@ -41,6 +42,8 @@ from .const import (
     CONF_LEARN_EXTRA,
     CONF_LEARN_FLOORS,
     CONF_LIGHTS,
+    CONF_MORNING_END,
+    CONF_MORNING_WORKDAYS_ONLY,
     CONF_PERSONS,
     CONF_REAR_LIGHTS,
     CONF_REPORT_NOTIFY,
@@ -275,10 +278,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
     context = ContextProvider(
         hass,
         config,
-        on_change=lambda: hass.async_create_task(
-            engine.async_settings_changed(), f"{DOMAIN}_context_{entry.entry_id}"
-        ),
+        on_change=lambda: _context_changed(),
     )
+
+    @callback
+    def _context_changed() -> None:
+        """Darkness or workdays changed: windows move, the daylight guard acts."""
+        sequences.async_check_daylight()
+        hass.async_create_task(
+            engine.async_settings_changed(), f"{DOMAIN}_context_{entry.entry_id}"
+        )
+
+    controller.daylight = sequences.daylight = context.daylight
     engine.replay = replay
     engine.dream = dream
     engine.player = player
@@ -363,7 +374,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
 
 async def async_migrate_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool:
     """Migrate an old config entry."""
-    if entry.version > 2:
+    if entry.version > 3:
         return False  # downgrade from a future version
     if entry.version == 1:
         # v0.2.0 adds the rear facade and the learning scope.
@@ -378,6 +389,15 @@ async def async_migrate_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bo
         }
         hass.config_entries.async_update_entry(entry, options=options, version=2)
         _LOGGER.info("Migrated %s to version 2", entry.title)
+    if entry.version == 2:
+        # v0.7.0: the morning window became the wake-up mode.
+        options = {
+            key: value
+            for key, value in entry.options.items()
+            if key not in (CONF_MORNING_END, CONF_MORNING_WORKDAYS_ONLY)
+        }
+        hass.config_entries.async_update_entry(entry, options=options, version=3)
+        _LOGGER.info("Migrated %s to version 3", entry.title)
     return True
 
 

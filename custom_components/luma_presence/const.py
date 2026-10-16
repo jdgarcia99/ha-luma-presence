@@ -104,9 +104,13 @@ CONF_DARKNESS_THRESHOLD: Final = "darkness_threshold_lx"
 CONF_DARKNESS_EARLIEST: Final = "darkness_earliest_min"
 CONF_DARKNESS_LATEST: Final = "darkness_latest_min"
 CONF_MORNING_ENABLED: Final = "morning_enabled"
+CONF_MORNING_LEARNED_ENABLED: Final = "morning_learned_enabled"
 CONF_MORNING_START: Final = "morning_start"
+CONF_MORNING_LATEST: Final = "morning_latest_min"
+# Replaced by the wake-up options in config entry version 3.
 CONF_MORNING_END: Final = "morning_end"
 CONF_MORNING_WORKDAYS_ONLY: Final = "morning_workdays_only"
+CONF_WORKDAY_SENSOR: Final = "workday_sensor"
 CONF_HOLIDAY_CALENDAR: Final = "holiday_calendar"
 CONF_WEATHER_ENTITY: Final = "weather_entity"
 CONF_BAD_WEATHER_BOOST: Final = "bad_weather_boost"
@@ -115,9 +119,16 @@ DEFAULT_DARKNESS_THRESHOLD: Final = 50.0
 DEFAULT_DARKNESS_EARLIEST: Final = -60
 DEFAULT_DARKNESS_LATEST: Final = 30
 DEFAULT_MORNING_ENABLED: Final = False
+DEFAULT_MORNING_LEARNED_ENABLED: Final = True
 DEFAULT_MORNING_START: Final = "06:30:00"
-DEFAULT_MORNING_END: Final = "08:30:00"
-DEFAULT_MORNING_WORKDAYS_ONLY: Final = True
+DEFAULT_MORNING_LATEST: Final = 30
+WAKE_DELAY_MAX_MIN: Final = 10
+# The daylight guard switches the lights off within this many seconds.
+DAYLIGHT_OFF_MAX_S: Final = 180
+# Clock axis of the learned mornings (Dream), and the learned first switch-on.
+MORNING_AXIS_START_H: Final = 5
+MORNING_AXIS_MIN: Final = 5 * 60
+MORNING_FIRST_ON_QUANTILE: Final = 0.2
 DEFAULT_BAD_WEATHER_BOOST: Final = 20
 DEFAULT_VERIFY_TIMEOUT: Final = 10
 DARKNESS_CONFIRM: Final = timedelta(minutes=5)
@@ -145,6 +156,8 @@ START_REASONS: Final = [
 NIGHT_TYPE_CALENDAR: Final = "calendar"
 NIGHT_TYPE_RULE: Final = "weekday_rule"
 NIGHT_TYPE_CALENDAR_UNAVAILABLE: Final = "calendar_unavailable"
+NIGHT_TYPE_WORKDAY: Final = "workday"
+NIGHT_TYPE_WORKDAY_UNAVAILABLE: Final = "workday_unavailable"
 # Why tonight's Dream plan is what it is, or why Dream fell back
 DREAM_BEST: Final = "best_candidate"
 DREAM_LOW_SCORE: Final = "low_score"

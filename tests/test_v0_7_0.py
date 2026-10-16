@@ -14,19 +14,26 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE
+from homeassistant.const import (
+    STATE_OFF,
+    STATE_ON,
+    STATE_UNAVAILABLE,
+    SUN_EVENT_SUNRISE,
+)
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
+from homeassistant.helpers.sun import get_astral_event_date
 from homeassistant.util import dt as dt_util
 
 from custom_components.luma_presence.const import (
-    CONF_BAD_WEATHER_BOOST,
     CONF_DARKNESS_SENSOR,
     CONF_HOLIDAY_CALENDAR,
     CONF_MORNING_ENABLED,
-    CONF_MORNING_END,
+    CONF_MORNING_LATEST,
     CONF_MORNING_START,
     CONF_WEATHER_ENTITY,
+    CONF_WORKDAY_SENSOR,
     DOMAIN,
     DREAM_BEST,
     DREAM_LOW_SCORE,
@@ -397,64 +404,252 @@ async def test_darkness_starts_the_evening(
 
 
 # ----------------------------------------------------------------------
-# Morning window
+# Wake-up
 # ----------------------------------------------------------------------
-async def test_morning_window(
-    hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory
-) -> None:
-    """Workdays only, ends at sunrise, none when already light or on holidays."""
-    _calendar(hass, [{"start": HOLIDAY.isoformat(), "end": (HOLIDAY + timedelta(days=1)).isoformat()}])
-    entry = await _setup(
-        hass, freezer, {CONF_MORNING_ENABLED: True, CONF_HOLIDAY_CALENDAR: CALENDAR}
-    )
-    engine = entry.runtime_data.engine
-    friday = date(2026, 10, 16)
-    start, end, reason = engine._morning(friday)
-    assert (start, reason) == (_local(friday, 6, 30), "morning")
-    # Sunrise (about 08:20) comes before the morning end.
-    assert time(8, 0) < dt_util.as_local(end).time() < time(8, 30)
-    assert engine._morning(date(2026, 10, 17)) is None  # Saturday
-    await entry.runtime_data.context.async_ensure_holidays(TODAY, HOLIDAY)
-    assert engine._morning(HOLIDAY) is None
-    assert engine._morning(HOLIDAY + timedelta(days=1)) is not None
+FRIDAY = date(2026, 10, 16)
 
-    # After sunrise there is no morning window.
-    engine._morning_start = time(9, 0)
-    engine._morning_end = time(10, 0)
-    assert engine._morning(friday) is None
 
-    # The engine schedules it and Replay/Dream treat it as the same night.
-    engine._morning_start, engine._morning_end = time(6, 30), time(8, 30)
+async def _turn_on(hass: HomeAssistant) -> None:
     await hass.services.async_call(
         "switch", "turn_on", {"entity_id": "switch.luma_presence_simulation"}, blocking=True
     )
-    await _move(hass, freezer, _local(friday, 3))
-    assert engine.next_event == _local(friday, 6, 30)
-    assert engine.next_event_reason == "morning"
-    morning = engine.morning_window()
-    assert to_night_seconds(dt_util.as_local(morning[0]), TODAY) == 18.5 * 3600
+    await hass.async_block_till_done()
 
 
-async def test_morning_options_validation(
+async def test_wake_up_sun_mode(
     hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory
 ) -> None:
-    """The morning end must follow its start."""
+    """Sun/Time: from morning_start until sunrise (no sensor); off by default."""
     entry = await _setup(hass, freezer)
+    engine = entry.runtime_data.engine
+    assert engine._morning(FRIDAY) is None  # off by default in Sun/Time
+
+    engine._morning_enabled = True
+    start, end, reason = engine._morning(FRIDAY)
+    sunrise = get_astral_event_date(hass, SUN_EVENT_SUNRISE, FRIDAY)
+    assert (start, end, reason) == (_local(FRIDAY, 6, 30), sunrise, "morning")
+    assert engine.morning_type(FRIDAY) == WEEKDAY
+    assert engine.morning_type(date(2026, 10, 17)) == WEEKEND  # Saturday
+    assert engine._morning(date(2026, 10, 17)) is not None  # every day now
+    # Already light at the start: no wake-up.
+    engine._morning_start = time(9, 0)
+    assert engine._morning(FRIDAY) is None
+
+
+async def test_wake_up_ends_with_light(
+    hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory
+) -> None:
+    """With a sensor: until it is light for 5 minutes, at most sunrise + latest."""
+    hass.states.async_set(LUX, "5")
+    entry = await _setup(
+        hass, freezer, {CONF_MORNING_ENABLED: True, CONF_DARKNESS_SENSOR: LUX}, hour=6, day=FRIDAY
+    )
+    engine = entry.runtime_data.engine
+    sunrise = get_astral_event_date(hass, SUN_EVENT_SUNRISE, FRIDAY)
+    # Still dark: it may last until sunrise + 30 minutes.
+    assert engine._morning(FRIDAY)[1] == sunrise + timedelta(minutes=30)
+    # Light from 07:50: it ends at 07:55.
+    freezer.move_to(_local(FRIDAY, 7, 50))
+    hass.states.async_set(LUX, "800")
+    await hass.async_block_till_done()
+    freezer.move_to(_local(FRIDAY, 7, 56))
+    assert engine._morning(FRIDAY)[1] == _local(FRIDAY, 7, 55)
+
+
+async def test_wake_up_learned_start(
+    hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory
+) -> None:
+    """Replay/Dream start at the learned first switch-on, never before morning_start."""
+    entry = await _setup(hass, freezer)
+    runtime = entry.runtime_data
+    await hass.services.async_call(
+        "select", "select_option",
+        {"entity_id": "select.luma_presence_mode", "option": "dream"}, blocking=True,
+    )
+    days = {}
+    day = date(2026, 9, 1)
+    while day <= TODAY:
+        # Weekday mornings wake up at 07:10, weekend mornings at 09:00.
+        wake = 7 * 3600 + 600 if day.weekday() < 5 else 9 * 3600
+        days[day.isoformat()] = {"exposure": [[0, 86400]], "events": [
+            ["light.hall", STATE_ON, wake, None], ["light.hall", STATE_OFF, wake + 1800, None],
+        ]}
+        day += timedelta(days=1)
+    runtime.learning._days = days
+    await runtime.dream.async_rebuild()
+    engine = runtime.engine
+    assert runtime.dream.morning_first_on(WEEKDAY) == time(7, 10)
+    assert engine._morning(FRIDAY)[0] == _local(FRIDAY, 7, 10)
+    assert engine._morning(date(2026, 10, 17)) is None  # 09:00: the sun is up
+    engine._morning_start = time(7, 30)  # never before morning_start
+    assert engine._morning(FRIDAY)[0] == _local(FRIDAY, 7, 30)
+    # The morning model has its own clock axis and a typical last switch-off.
+    weekday = runtime.dream.morning_model.day_types[WEEKDAY]
+    assert weekday.first_on == 130  # 07:10 is minute 130 after 05:00
+    assert weekday.last_off == 160
+
+
+async def test_wake_up_when_leaving_before_dawn(
+    hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory
+) -> None:
+    """Switched on during the wake-up: it starts after a 0-10 minute delay."""
+    entry = await _setup(hass, freezer, {CONF_MORNING_ENABLED: True}, hour=7, day=FRIDAY)
+    engine = entry.runtime_data.engine
+    await _turn_on(hass)
+    assert engine.status == "waiting"
+    start = engine.next_event
+    assert _local(FRIDAY, 7) <= start <= _local(FRIDAY, 7, 10)
+    assert engine.next_event_reason == "morning"
+    await _move(hass, freezer, start + timedelta(seconds=1))
+    await _until(lambda: engine.status == "simulating")
+
+
+# ----------------------------------------------------------------------
+# Daylight guard
+# ----------------------------------------------------------------------
+async def test_daylight_guard(
+    hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory
+) -> None:
+    """Light for 5 minutes stops everything; nothing is switched on by day."""
+    hass.states.async_set(LUX, "2")
+    entry = await _setup(hass, freezer, {CONF_DARKNESS_SENSOR: LUX}, hour=21)
+    runtime = entry.runtime_data
+    engine, controller = runtime.engine, runtime.controller
+    await _turn_on(hass)
+    # Dark since 21:00: the evening starts once it has been dark for 5 minutes.
+    await _move(hass, freezer, _local(TODAY, 21, 6))
+    await _until(lambda: bool(controller.owned_on()))
+    owned = controller.owned_on()
+
+    # Someone switches on the floodlights for a while: daylight.
+    hass.states.async_set(LUX, "900")
+    await hass.async_block_till_done()
+    await _move(hass, freezer, dt_util.utcnow() + timedelta(minutes=5, seconds=1))
+    assert runtime.context.daylight()
+    assert engine.status != "simulating"
+    # Everything owned goes off within 3 minutes.
+    await _move(hass, freezer, dt_util.utcnow() + timedelta(minutes=3, seconds=1))
+    await _until(lambda: all(hass.states.get(e).state == STATE_OFF for e in owned))
+    # Nothing turns on while it is day, routes included.
+    assert await controller.async_switch("light.salon", True) is False
+    assert hass.states.get("light.salon").state == STATE_OFF
+    with pytest.raises(ServiceValidationError):
+        runtime.sequences.async_run_now()
+
+    # Dark again: the evening goes on.
+    hass.states.async_set(LUX, "3")
+    await hass.async_block_till_done()
+    await _move(hass, freezer, dt_util.utcnow() + timedelta(seconds=10))
+    assert not runtime.context.daylight()
+    await _until(lambda: engine.status == "simulating")
+
+
+# ----------------------------------------------------------------------
+# Workday
+# ----------------------------------------------------------------------
+WORKDAY = "binary_sensor.workday_sensor"
+
+
+def _workday(hass: HomeAssistant, holidays: set[date], fail: bool = False) -> list[str]:
+    """A Workday integration: weekends and `holidays` are not workdays."""
+    checked: list[str] = []
+
+    async def _check(call: ServiceCall) -> dict[str, Any]:
+        if fail:
+            raise HomeAssistantError("workday is down")
+        day = date.fromisoformat(str(call.data["check_date"]))
+        checked.append(day.isoformat())
+        return {WORKDAY: {"workday": day.weekday() < 5 and day not in holidays}}
+
+    hass.states.async_set(WORKDAY, STATE_ON)
+    hass.services.async_register(
+        "workday", "check_date", _check, supports_response=SupportsResponse.ONLY
+    )
+    return checked
+
+
+async def test_workday_classifies_dates(
+    hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory
+) -> None:
+    """Workday decides night and morning types, cached per date, before the calendar."""
+    checked = _workday(hass, {HOLIDAY})
+    _calendar(hass, [])  # a calendar too: Workday is preferred
+    entry = await _setup(
+        hass, freezer, {CONF_WORKDAY_SENSOR: WORKDAY, CONF_HOLIDAY_CALENDAR: CALENDAR}
+    )
+    await hass.async_block_till_done(wait_background_tasks=True)
+    context = entry.runtime_data.context
+    await context.async_ensure_holidays(TODAY, HOLIDAY + timedelta(days=1))
+    assert context.night_type_source == "workday"
+    assert context.night_type(HOLIDAY - timedelta(days=1)) == WEEKEND  # eve of the holiday
+    assert context.night_type(HOLIDAY) == WEEKDAY
+    assert not context.is_workday(HOLIDAY)
+    assert entry.runtime_data.engine.morning_type(HOLIDAY) == WEEKEND
+    count = len(checked)
+    await context.async_ensure_holidays(TODAY, HOLIDAY + timedelta(days=1))
+    assert len(checked) == count  # cached per date
+    assert len(checked) == len(set(checked))
+
+
+async def test_workday_unavailable_falls_back(
+    hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory
+) -> None:
+    """If Workday does not answer, the plain rule is used and the sensor says so."""
+    _workday(hass, {HOLIDAY}, fail=True)
+    entry = await _setup(hass, freezer, {CONF_WORKDAY_SENSOR: WORKDAY})
+    await hass.async_block_till_done(wait_background_tasks=True)
+    context = entry.runtime_data.context
+    await context.async_ensure_holidays(TODAY, HOLIDAY + timedelta(days=1))
+    assert context.night_type_source == "workday_unavailable"
+    assert context.night_type(HOLIDAY - timedelta(days=1)) == WEEKDAY  # plain rule
+    entry.runtime_data.dream._notify()
+    await hass.async_block_till_done()
+    sensor = hass.states.get("sensor.luma_presence_context")
+    assert sensor.attributes["night_type_source"] == "workday_unavailable"
+
+
+async def test_workday_calendar_is_rejected(
+    hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory
+) -> None:
+    """The Workday calendar lists workdays: it cannot be the holiday calendar."""
+    entry = await _setup(hass, freezer)
+    workday_entry = MockConfigEntry(domain="workday")
+    workday_entry.add_to_hass(hass)
+    calendar = er.async_get(hass).async_get_or_create(
+        "calendar", "workday", "workday_calendar", config_entry=workday_entry
+    ).entity_id
+    hass.states.async_set(calendar, STATE_OFF)
     flow = hass.config_entries.options
     result = await flow.async_init(entry.entry_id)
     result = await flow.async_configure(result["flow_id"], {"next_step_id": "context"})
+    result = await flow.async_configure(result["flow_id"], {CONF_HOLIDAY_CALENDAR: calendar})
+    assert result["errors"] == {CONF_HOLIDAY_CALENDAR: "calendar_is_workday"}
     result = await flow.async_configure(
-        result["flow_id"],
-        {CONF_MORNING_ENABLED: True, CONF_MORNING_START: "08:00:00", CONF_MORNING_END: "07:00:00"},
-    )
-    assert result["errors"] == {CONF_MORNING_END: "morning_range"}
-    result = await flow.async_configure(
-        result["flow_id"],
-        {CONF_MORNING_ENABLED: True, CONF_BAD_WEATHER_BOOST: 30,
-         CONF_MORNING_START: "06:00:00", CONF_MORNING_END: "07:30:00"},
+        result["flow_id"], {CONF_MORNING_START: "06:00:00", CONF_MORNING_LATEST: 45}
     )
     result = await flow.async_configure(result["flow_id"], {"next_step_id": "save"})
-    assert entry.options[CONF_MORNING_END] == "07:30:00"
+    assert entry.options[CONF_MORNING_LATEST] == 45
+
+
+async def test_migration_to_wake_up(
+    hass: HomeAssistant, fake_lights, freezer: FrozenDateTimeFactory
+) -> None:
+    """Version 2 entries lose the old morning options and become version 3."""
+    freezer.move_to(_local(TODAY, 12))
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="LumaPresence",
+        options={**OPTIONS, CONF_MORNING_ENABLED: True, "morning_end": "08:30:00",
+                 "morning_workdays_only": True},
+        version=2,
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.version == 3
+    assert "morning_end" not in entry.options
+    assert "morning_workdays_only" not in entry.options
+    assert entry.options[CONF_MORNING_ENABLED] is True
 
 
 # ----------------------------------------------------------------------

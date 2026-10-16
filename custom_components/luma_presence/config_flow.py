@@ -74,9 +74,9 @@ from .const import (
     CONF_MARGIN_AFTER,
     CONF_MARGIN_BEFORE,
     CONF_MORNING_ENABLED,
-    CONF_MORNING_END,
+    CONF_MORNING_LATEST,
+    CONF_MORNING_LEARNED_ENABLED,
     CONF_MORNING_START,
-    CONF_MORNING_WORKDAYS_ONLY,
     CONF_ORIGIN,
     CONF_PATH,
     CONF_PERSONS,
@@ -87,6 +87,7 @@ from .const import (
     CONF_UNAVAILABLE_ALERT_MINUTES,
     CONF_VERIFY_TIMEOUT,
     CONF_WEATHER_ENTITY,
+    CONF_WORKDAY_SENSOR,
     DEFAULT_ALARM_ACTIVATE_STATES,
     DEFAULT_ALARM_CONTROL,
     DEFAULT_AUTO_EXCLUDE_INDICATORS,
@@ -102,9 +103,9 @@ from .const import (
     DEFAULT_MARGIN_AFTER,
     DEFAULT_MARGIN_BEFORE,
     DEFAULT_MORNING_ENABLED,
-    DEFAULT_MORNING_END,
+    DEFAULT_MORNING_LATEST,
+    DEFAULT_MORNING_LEARNED_ENABLED,
     DEFAULT_MORNING_START,
-    DEFAULT_MORNING_WORKDAYS_ONLY,
     DEFAULT_NAME,
     DEFAULT_STEP_DELAY_MAX,
     DEFAULT_STEP_DELAY_MIN,
@@ -163,6 +164,7 @@ _EMPTY_VALUES: dict[str, dict[str, Any]] = {
     STEP_PRESENCE: {CONF_PERSONS: [], CONF_ALARM: None, CONF_ALARM_ACTIVATE_STATES: []},
     STEP_MONITORING: {CONF_REPORT_NOTIFY: ""},
     STEP_CONTEXT: {
+        CONF_WORKDAY_SENSOR: None,
         CONF_DARKNESS_SENSOR: None,
         CONF_HOLIDAY_CALENDAR: None,
         CONF_WEATHER_ENTITY: None,
@@ -372,17 +374,22 @@ def _context_schema(options: Mapping[str, Any]) -> vol.Schema:
                 default=options.get(CONF_MORNING_ENABLED, DEFAULT_MORNING_ENABLED),
             ): BooleanSelector(),
             vol.Required(
+                CONF_MORNING_LEARNED_ENABLED,
+                default=options.get(
+                    CONF_MORNING_LEARNED_ENABLED, DEFAULT_MORNING_LEARNED_ENABLED
+                ),
+            ): BooleanSelector(),
+            vol.Required(
                 CONF_MORNING_START,
                 default=options.get(CONF_MORNING_START, DEFAULT_MORNING_START),
             ): TimeSelector(),
             vol.Required(
-                CONF_MORNING_END,
-                default=options.get(CONF_MORNING_END, DEFAULT_MORNING_END),
-            ): TimeSelector(),
-            vol.Required(
-                CONF_MORNING_WORKDAYS_ONLY,
-                default=options.get(CONF_MORNING_WORKDAYS_ONLY, DEFAULT_MORNING_WORKDAYS_ONLY),
-            ): BooleanSelector(),
+                CONF_MORNING_LATEST,
+                default=options.get(CONF_MORNING_LATEST, DEFAULT_MORNING_LATEST),
+            ): minutes(0, 120),
+            vol.Optional(
+                CONF_WORKDAY_SENSOR, description=_suggested(options, CONF_WORKDAY_SENSOR)
+            ): entity(domain="binary_sensor", integration="workday"),
             vol.Optional(
                 CONF_HOLIDAY_CALENDAR, description=_suggested(options, CONF_HOLIDAY_CALENDAR)
             ): entity(domain="calendar"),
@@ -401,15 +408,16 @@ def _context_schema(options: Mapping[str, Any]) -> vol.Schema:
     )
 
 
-def _validate_context(options: Mapping[str, Any]) -> dict[str, str]:
+def _validate_context(hass: HomeAssistant, options: Mapping[str, Any]) -> dict[str, str]:
     earliest = float(options.get(CONF_DARKNESS_EARLIEST, DEFAULT_DARKNESS_EARLIEST))
     latest = float(options.get(CONF_DARKNESS_LATEST, DEFAULT_DARKNESS_LATEST))
     if earliest > latest:
         return {CONF_DARKNESS_LATEST: "darkness_range"}
-    start = str(options.get(CONF_MORNING_START, DEFAULT_MORNING_START))
-    end = str(options.get(CONF_MORNING_END, DEFAULT_MORNING_END))
-    if options.get(CONF_MORNING_ENABLED) and start >= end:
-        return {CONF_MORNING_END: "morning_range"}
+    # The Workday calendar has events on WORKDAYS: it would invert everything.
+    if (calendar := options.get(CONF_HOLIDAY_CALENDAR)) and (
+        entry := er.async_get(hass).async_get(calendar)
+    ) is not None and entry.platform == "workday":
+        return {CONF_HOLIDAY_CALENDAR: "calendar_is_workday"}
     return {}
 
 
@@ -578,7 +586,7 @@ class _LumaSteps:
 class LumaPresenceConfigFlow(_LumaSteps, ConfigFlow, domain=DOMAIN):
     """Handle the initial setup."""
 
-    VERSION = 2
+    VERSION = 3
 
     def __init__(self) -> None:
         """Initialize the flow."""
@@ -683,7 +691,7 @@ class LumaPresenceOptionsFlow(_LumaSteps, OptionsFlow):
         errors: dict[str, str] = {}
         if user_input is not None:
             candidate = {**self._options, **_EMPTY_VALUES[STEP_CONTEXT], **user_input}
-            errors = _validate_context(candidate)
+            errors = _validate_context(self.hass, candidate)
             if not errors:
                 self._update(STEP_CONTEXT, user_input)
                 return await self.async_step_init()

@@ -203,16 +203,17 @@
       },
       "context": {
         "title": "Context",
-        "description": "Optional context for the simulation: start the evening when it gets dark, simulate a dark morning before work, treat holidays like weekends, and add light when the weather is bad.",
+        "description": "Optional context for the simulation: start the evening when it gets dark, wake the house up before dawn, use workdays and holidays for the type of each night and morning, and add light when the weather is bad. With an illuminance sensor, a daylight guard also stops everything and switches the lights off as soon as it is day.",
         "data": {
           "darkness_sensor": "Illuminance sensor",
           "darkness_threshold_lx": "Darkness threshold",
           "darkness_earliest_min": "Earliest start (minutes from sunset)",
           "darkness_latest_min": "Latest start (minutes from sunset)",
-          "morning_enabled": "Simulate dark mornings",
-          "morning_start": "Morning start",
-          "morning_end": "Morning end",
-          "morning_workdays_only": "Only on workdays",
+          "morning_enabled": "Wake-up in Sun and Time modes",
+          "morning_learned_enabled": "Wake-up in Replay and Dream modes",
+          "morning_start": "Wake-up start",
+          "morning_latest_min": "Wake-up may last after sunrise (minutes)",
+          "workday_sensor": "Workday sensor",
           "holiday_calendar": "Holiday calendar",
           "weather_entity": "Weather",
           "bad_weather_boost": "Bad weather boost"
@@ -222,9 +223,12 @@
           "darkness_threshold_lx": "Below this illuminance it counts as dark.",
           "darkness_earliest_min": "Negative values are before sunset.",
           "darkness_latest_min": "If it is not dark by then, the evening starts anyway.",
-          "morning_enabled": "Lights on before work while it is still dark: from the morning start until the morning end or sunrise, whichever comes first.",
-          "morning_workdays_only": "Not on Saturdays, Sundays or holidays.",
-          "holiday_calendar": "All-day events (or events covering midday) are holidays: the night before one is a weekend night.",
+          "morning_enabled": "Sun and Time: lights on from the wake-up start until it is light.",
+          "morning_learned_enabled": "Replay and Dream: from the time the house usually wakes up (learned), never before the wake-up start, until it is light.",
+          "morning_start": "Earliest wake-up. If the simulation is switched on during the wake-up, it starts a few minutes later.",
+          "morning_latest_min": "With an illuminance sensor, the wake-up ends when it has been light for 5 minutes; if it is still dark, up to this long after sunrise. Without a sensor it ends at sunrise.",
+          "workday_sensor": "A Workday integration sensor: decides which days are workdays (preferred over the holiday calendar).",
+          "holiday_calendar": "All-day events (or events covering midday) are holidays: the night before one is a weekend night. Do not use the Workday calendar here (its events are workdays): use the Workday sensor instead.",
           "weather_entity": "Rain, snow, storms, hail or less than 8 °C count as bad weather.",
           "bad_weather_boost": "Dream: the two busiest evening rooms start this much more often. Sun and Time: one more light on."
         }
@@ -237,7 +241,7 @@
       "alarm_required": "Select the alarm panel to control the simulation with it.",
       "activate_states_required": "Select at least one alarm state.",
       "darkness_range": "The latest start must not be before the earliest start.",
-      "morning_range": "The morning end must be after the morning start."
+      "calendar_is_workday": "This calendar comes from the Workday integration and its events are workdays, not holidays. Choose it as the Workday sensor instead."
     }
   },
   "config_subentries": {
@@ -457,7 +461,7 @@
               "clamped_earliest": "Earliest start (already dark)",
               "clamped_latest": "Latest start",
               "sensor_unavailable": "Sunset (sensor unavailable)",
-              "morning": "Morning window",
+              "morning": "Wake-up",
               "time": "Start time"
             }
           }
@@ -557,7 +561,9 @@
             "state": {
               "calendar": "Holiday calendar",
               "weekday_rule": "Day of the week",
-              "calendar_unavailable": "Calendar unavailable (day of the week)"
+              "calendar_unavailable": "Calendar unavailable (day of the week)",
+              "workday": "Workday",
+              "workday_unavailable": "Workday unavailable (day of the week)"
             }
           },
           "evening_start_reason": {
@@ -568,7 +574,7 @@
               "clamped_earliest": "Earliest start (already dark)",
               "clamped_latest": "Latest start",
               "sensor_unavailable": "Sunset (sensor unavailable)",
-              "morning": "Morning window",
+              "morning": "Wake-up",
               "time": "Start time"
             }
           }
@@ -723,6 +729,9 @@
     },
     "night_report": {
       "message": "Last night ({mode}): {lights} lights switched {switches} times. Rooms: {rooms}. Realism: {score}. Lights that did not obey: {failures}."
+    },
+    "daylight": {
+      "message": "It is day: LumaPresence does not switch lights on while it is light."
     }
   }
 }

@@ -24,14 +24,15 @@ from .const import (
     CONF_FRONT_LIGHTS,
     CONF_LIGHTS,
     CONF_MORNING_ENABLED,
-    CONF_MORNING_END,
+    CONF_MORNING_LATEST,
+    CONF_MORNING_LEARNED_ENABLED,
     CONF_MORNING_START,
-    CONF_MORNING_WORKDAYS_ONLY,
     CONF_REAR_LIGHTS,
+    DAYLIGHT_OFF_MAX_S,
     DEFAULT_MORNING_ENABLED,
-    DEFAULT_MORNING_END,
+    DEFAULT_MORNING_LATEST,
+    DEFAULT_MORNING_LEARNED_ENABLED,
     DEFAULT_MORNING_START,
-    DEFAULT_MORNING_WORKDAYS_ONLY,
     DOMAIN,
     EVENT_END,
     EVENT_START,
@@ -57,10 +58,12 @@ from .const import (
     STOP_KEEP_ON,
     STOP_OFF_GRADUAL,
     STOP_OFF_NOW,
+    WAKE_DELAY_MAX_MIN,
     signal_update,
 )
 from .light_control import LightController
 from .models import LumaSettings
+from .plan import WEEKDAY, WEEKEND
 
 if TYPE_CHECKING:
     from .context import ContextProvider
@@ -93,12 +96,18 @@ class SimulationEngine:
         self._lights: list[str] = list(config.get(CONF_LIGHTS, []))
         self._front: set[str] = set(config.get(CONF_FRONT_LIGHTS, []))
         self._rear: set[str] = set(config.get(CONF_REAR_LIGHTS, []))
+        # Wake-up window: Sun/Time use morning_start; Replay/Dream the learned
+        # first switch-on of the morning (never earlier than morning_start).
         self._morning_enabled = bool(config.get(CONF_MORNING_ENABLED, DEFAULT_MORNING_ENABLED))
-        self._morning_start = _time(config.get(CONF_MORNING_START), DEFAULT_MORNING_START)
-        self._morning_end = _time(config.get(CONF_MORNING_END), DEFAULT_MORNING_END)
-        self._morning_workdays = bool(
-            config.get(CONF_MORNING_WORKDAYS_ONLY, DEFAULT_MORNING_WORKDAYS_ONLY)
+        self._morning_learned = bool(
+            config.get(CONF_MORNING_LEARNED_ENABLED, DEFAULT_MORNING_LEARNED_ENABLED)
         )
+        self._morning_start = _time(config.get(CONF_MORNING_START), DEFAULT_MORNING_START)
+        self._morning_latest = timedelta(
+            minutes=float(config.get(CONF_MORNING_LATEST, DEFAULT_MORNING_LATEST))
+        )
+        # Master switched on inside a wake-up window: (day, earliest start).
+        self._wake_delay: tuple[date, datetime] | None = None
         self.settings = settings
         self.controller = controller
         # Set once the learning gate exists; plays Replay nights.
@@ -230,6 +239,13 @@ class SimulationEngine:
             listener()
         if self._started:
             if enabled:
+                self._wake_delay = None
+                now = dt_util.utcnow()
+                today = dt_util.as_local(now).date()
+                if (window := self._morning(today)) is not None and window[0] <= now < window[1]:
+                    # Leaving before dawn: start soon, after a random delay.
+                    delay = timedelta(minutes=random.uniform(0, WAKE_DELAY_MAX_MIN))
+                    self._wake_delay = (today, now + delay)
                 await self._async_reschedule()
             else:
                 self._cancel_timer()
@@ -265,9 +281,16 @@ class SimulationEngine:
             self.next_event_reason = self.window_reason
             self._schedule(window[1], EVENT_END)
         else:
-            if self._sim_task is not None:
-                # A setting change moved us outside the window.
-                await self._async_end_simulation(STOP_OFF_GRADUAL)
+            if self._sim_task is not None or (
+                self._daylight() and self.controller.owned_on()
+            ):
+                # Outside the window: a setting changed, or it is day (the
+                # daylight guard switches the lights off within 3 minutes).
+                await self._async_end_simulation(
+                    STOP_OFF_GRADUAL,
+                    all_owners=self._daylight(),
+                    max_total=DAYLIGHT_OFF_MAX_S if self._daylight() else None,
+                )
             if (window := self._next_window(now)) is not None:
                 self._schedule(window[0], EVENT_START)
             else:
@@ -357,23 +380,38 @@ class SimulationEngine:
         return start, end, reason
 
     def _morning(self, day: date) -> tuple[datetime, datetime, str] | None:
-        """Morning window of a local date, while it is still dark."""
-        if not self._morning_enabled:
+        """Wake-up window of a local date: from the start until it is light."""
+        learned = self.settings.mode in (MODE_REPLAY, MODE_DREAM)
+        if not (self._morning_learned if learned else self._morning_enabled):
             return None
-        if self._morning_workdays and not self._is_workday(day):
-            return None
+        start_time = self._morning_start
+        if learned and self.dream is not None:
+            first = self.dream.morning_first_on(self.morning_type(day))
+            if first is not None and first > start_time:
+                start_time = first
         tz = dt_util.get_default_time_zone()
-        start = dt_util.as_utc(datetime.combine(day, self._morning_start, tzinfo=tz))
-        end = dt_util.as_utc(datetime.combine(day, self._morning_end, tzinfo=tz))
+        start = dt_util.as_utc(datetime.combine(day, start_time, tzinfo=tz))
         sunrise = get_astral_event_date(self.hass, SUN_EVENT_SUNRISE, day)
-        if sunrise is None or sunrise <= start:
-            return None  # already light: no morning window
-        end = min(end, sunrise)
-        if self.context is not None and self.context.darkness is not None:
-            end = self.context.darkness.morning_end(day, start, end)
+        if sunrise is None:
+            return None
+        tracker = self.context.darkness if self.context is not None else None
+        if tracker is not None and tracker.available:
+            # Until it is light; if it stays dark, up to sunrise + latest.
+            end = tracker.morning_end(day, start, sunrise + self._morning_latest)
+        else:
+            end = sunrise
+        if self._wake_delay is not None and self._wake_delay[0] == day:
+            start = max(start, self._wake_delay[1])
         if end <= start:
             return None
         return start, end, START_MORNING
+
+    def morning_type(self, day: date) -> str:
+        """Type of the morning of a date: weekday when it is a workday."""
+        return WEEKDAY if self._is_workday(day) else WEEKEND
+
+    def _daylight(self) -> bool:
+        return self.context is not None and self.context.daylight()
 
     def _is_workday(self, day: date) -> bool:
         if self.context is not None:
@@ -416,6 +454,8 @@ class SimulationEngine:
     def _current_window(
         self, now: datetime, mode: str | None = None, evening_only: bool = False
     ) -> tuple[datetime, datetime] | None:
+        if self._daylight():
+            return None  # daylight guard: never simulate while it is day
         today = dt_util.as_local(now).date()
         for offset in (-1, 0):
             for start, end, reason in self._windows(today + timedelta(days=offset), mode, evening_only):
@@ -585,11 +625,13 @@ class SimulationEngine:
         *,
         all_owners: bool = False,
         origin: str = ORIGIN_SCHEDULE,
+        max_total: float | None = None,
     ) -> None:
         """Stop the loop and handle the lights the simulation owns.
 
         With `all_owners`, the lights of an interrupted route are handled too.
         `origin` says who stopped it: the master switch origin, or "schedule".
+        `max_total` caps the duration of a gradual switch-off (seconds).
         """
         if self._sim_task is not None:
             self._sim_task.cancel()
@@ -610,18 +652,19 @@ class SimulationEngine:
             for entity_id in lights:
                 await self._async_switch(entity_id, False)
         else:
+            interval = self.settings.stop_interval
+            if max_total is not None and len(lights) > 1:
+                interval = min(interval, max_total / (len(lights) - 1))
             self._stop_task = self.hass.async_create_background_task(
-                self._async_gradual_off(lights),
+                self._async_gradual_off(lights, interval),
                 f"{DOMAIN}_stop_{self._entry_id}",
                 eager_start=False,
             )
         self._notify()
 
-    async def _async_gradual_off(self, lights: list[str]) -> None:
+    async def _async_gradual_off(self, lights: list[str], interval: float) -> None:
         try:
-            await self.controller.async_turn_off_gradually(
-                lights, self.settings.stop_interval
-            )
+            await self.controller.async_turn_off_gradually(lights, interval)
         finally:
             if self._stop_task is asyncio.current_task():
                 self._stop_task = None

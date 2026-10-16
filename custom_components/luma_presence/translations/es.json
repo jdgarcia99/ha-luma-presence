@@ -203,16 +203,17 @@
       },
       "context": {
         "title": "Contexto",
-        "description": "Contexto opcional para la simulación: empezar la noche cuando oscurece, simular una mañana oscura antes del trabajo, tratar los festivos como fines de semana y añadir luz cuando hace mal tiempo.",
+        "description": "Contexto opcional para la simulación: empezar la noche cuando oscurece, despertar la casa antes del amanecer, usar los días laborables y festivos para el tipo de cada noche y mañana, y añadir luz cuando hace mal tiempo. Con un sensor de iluminancia, un guardián de luz diurna además lo detiene todo y apaga las luces en cuanto es de día.",
         "data": {
           "darkness_sensor": "Sensor de iluminancia",
           "darkness_threshold_lx": "Umbral de oscuridad",
           "darkness_earliest_min": "Inicio más temprano (minutos desde la puesta de sol)",
           "darkness_latest_min": "Inicio más tardío (minutos desde la puesta de sol)",
-          "morning_enabled": "Simular mañanas oscuras",
-          "morning_start": "Inicio de la mañana",
-          "morning_end": "Fin de la mañana",
-          "morning_workdays_only": "Solo en días laborables",
+          "morning_enabled": "Despertar en los modos Sol y Horario",
+          "morning_learned_enabled": "Despertar en los modos Replay y Dream",
+          "morning_start": "Inicio del despertar",
+          "morning_latest_min": "El despertar puede durar tras el amanecer (minutos)",
+          "workday_sensor": "Sensor de Workday",
           "holiday_calendar": "Calendario de festivos",
           "weather_entity": "Tiempo",
           "bad_weather_boost": "Refuerzo por mal tiempo"
@@ -222,9 +223,12 @@
           "darkness_threshold_lx": "Por debajo de esta iluminancia se considera oscuro.",
           "darkness_earliest_min": "Los valores negativos son antes de la puesta de sol.",
           "darkness_latest_min": "Si para entonces no ha oscurecido, la noche empieza igualmente.",
-          "morning_enabled": "Luces encendidas antes del trabajo mientras aún es de noche: desde el inicio de la mañana hasta su fin o hasta la salida del sol, lo que llegue antes.",
-          "morning_workdays_only": "Ni sábados, ni domingos, ni festivos.",
-          "holiday_calendar": "Los eventos de día completo (o que cubren el mediodía) son festivos: la noche anterior a uno es una noche de fin de semana.",
+          "morning_enabled": "Sol y Horario: luces encendidas desde el inicio del despertar hasta que haya luz.",
+          "morning_learned_enabled": "Replay y Dream: desde la hora a la que la casa suele despertar (aprendida), nunca antes del inicio del despertar, hasta que haya luz.",
+          "morning_start": "Despertar más temprano. Si la simulación se activa durante el despertar, empieza unos minutos después.",
+          "morning_latest_min": "Con un sensor de iluminancia, el despertar termina cuando lleva 5 minutos habiendo luz; si sigue oscuro, hasta este tiempo después del amanecer. Sin sensor termina al amanecer.",
+          "workday_sensor": "Un sensor de la integración Workday: decide qué días son laborables (tiene preferencia sobre el calendario de festivos).",
+          "holiday_calendar": "Los eventos de día completo (o que cubren el mediodía) son festivos: la noche anterior a uno es una noche de fin de semana. No uses aquí el calendario de Workday (sus eventos son días laborables): usa el sensor de Workday.",
           "weather_entity": "Lluvia, nieve, tormenta, granizo o menos de 8 °C cuentan como mal tiempo.",
           "bad_weather_boost": "Dream: las dos estancias con más uso por la tarde empiezan esta proporción más a menudo. Sol y Horario: una luz más encendida."
         }
@@ -237,7 +241,7 @@
       "alarm_required": "Selecciona el panel de alarma para controlar la simulación con él.",
       "activate_states_required": "Selecciona al menos un estado de la alarma.",
       "darkness_range": "El inicio más tardío no puede ser anterior al más temprano.",
-      "morning_range": "El fin de la mañana debe ser posterior a su inicio."
+      "calendar_is_workday": "Este calendario es de la integración Workday y sus eventos son días laborables, no festivos. Elígelo como sensor de Workday."
     }
   },
   "config_subentries": {
@@ -457,7 +461,7 @@
               "clamped_earliest": "Inicio más temprano (ya era de noche)",
               "clamped_latest": "Inicio más tardío",
               "sensor_unavailable": "Puesta de sol (sensor no disponible)",
-              "morning": "Ventana de mañana",
+              "morning": "Despertar",
               "time": "Hora de inicio"
             }
           }
@@ -557,7 +561,9 @@
             "state": {
               "calendar": "Calendario de festivos",
               "weekday_rule": "Día de la semana",
-              "calendar_unavailable": "Calendario no disponible (día de la semana)"
+              "calendar_unavailable": "Calendario no disponible (día de la semana)",
+              "workday": "Workday",
+              "workday_unavailable": "Workday no disponible (día de la semana)"
             }
           },
           "evening_start_reason": {
@@ -568,7 +574,7 @@
               "clamped_earliest": "Inicio más temprano (ya era de noche)",
               "clamped_latest": "Inicio más tardío",
               "sensor_unavailable": "Puesta de sol (sensor no disponible)",
-              "morning": "Ventana de mañana",
+              "morning": "Despertar",
               "time": "Hora de inicio"
             }
           }
@@ -723,6 +729,9 @@
     },
     "night_report": {
       "message": "Anoche ({mode}): {lights} luces conmutadas {switches} veces. Estancias: {rooms}. Realismo: {score}. Luces que no obedecieron: {failures}."
+    },
+    "daylight": {
+      "message": "Es de día: LumaPresence no enciende luces mientras haya luz."
     }
   }
 }

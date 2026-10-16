@@ -78,6 +78,8 @@ class LightController:
         self.failure_counts: dict[str, int] = {}  # tonight
         self.failed_tonight: set[str] = set()
         self._failure_listeners: list[Callable[[str, bool, str], None]] = []
+        # Daylight guard (set by the integration): nothing turns on by day.
+        self.daylight: Callable[[], bool] = lambda: False
 
         # entity_id -> (owner, context id of the change that turned it on)
         self._owned: dict[str, tuple[str, str]] = {}
@@ -249,7 +251,13 @@ class LightController:
         owner: str = OWNER_SIMULATION,
         **extra: Any,
     ) -> bool:
-        """Turn a light on or off; turning it on makes `owner` its owner."""
+        """Turn a light on or off; turning it on makes `owner` its owner.
+
+        While it is day (daylight guard) nothing is turned on.
+        """
+        if turn_on and self.daylight():
+            _LOGGER.debug("Not turning on %s: it is day", entity_id)
+            return False
         context = Context()
         self._remember_context(context.id)
         if turn_on:

@@ -12,7 +12,7 @@ starts, so clock times are kept across DST changes.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Container
+from collections.abc import Callable, Container, Mapping
 from dataclasses import asdict, dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 import logging
@@ -74,23 +74,34 @@ WEEKEND = "weekend"
 DAY_TYPES = (WEEKDAY, WEEKEND)
 
 
-def day_type(night: date, holidays: Container[date] | None = None) -> str:
-    """Day type of a night, shared by Replay, Dream and the morning window.
+def day_type(
+    night: date,
+    holidays: Container[date] | None = None,
+    workdays: Mapping[date, bool] | None = None,
+) -> str:
+    """Day type of a night, shared by Replay, Dream and the wake-up window.
 
-    The night starting on day D is a weekend night when D+1 is Saturday,
-    Sunday or a holiday; otherwise a weekday night (a working day follows).
-    Without holidays: weekday nights start Sunday to Thursday, weekend
-    nights Friday and Saturday.
+    The night starting on day D is a weekend night when D+1 is not a
+    workday: per the Workday integration (`workdays`) when it knows D+1,
+    otherwise when D+1 is Saturday, Sunday or a holiday. Without holidays:
+    weekday nights start Sunday to Thursday, weekend nights Friday and
+    Saturday.
     """
-    following = night + timedelta(days=1)
-    if following.weekday() in (5, 6) or (holidays is not None and following in holidays):
-        return WEEKEND
-    return WEEKDAY
+    return WEEKDAY if is_workday(night + timedelta(days=1), holidays, workdays) else WEEKEND
 
 
-def is_workday(day: date, holidays: Container[date] | None = None) -> bool:
-    """A workday is neither Saturday, Sunday nor a holiday (same rule as the night type)."""
-    return day_type(day - timedelta(days=1), holidays) == WEEKDAY
+def is_workday(
+    day: date,
+    holidays: Container[date] | None = None,
+    workdays: Mapping[date, bool] | None = None,
+) -> bool:
+    """A workday is neither Saturday, Sunday nor a holiday, unless Workday says otherwise.
+
+    The type of the morning of day D uses this rule, like the night type.
+    """
+    if workdays is not None and day in workdays:
+        return workdays[day]
+    return day.weekday() < 5 and not (holidays is not None and day in holidays)
 
 
 def clock_text(seconds: float) -> str:

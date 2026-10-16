@@ -30,6 +30,7 @@ from .const import (
     CONF_DWELL_MIN,
     CONF_STEP_DELAY_MAX,
     CONF_STEP_DELAY_MIN,
+    DAYLIGHT_OFF_MAX_S,
     DEFAULT_DWELL_MAX,
     DEFAULT_DWELL_MIN,
     DEFAULT_STEP_DELAY_MAX,
@@ -106,6 +107,8 @@ class SequenceEngine:
         # Same-room fallback for route lights that do not obey (set by the
         # integration), and the stand-ins used by the running route.
         self.alternatives: Callable[[str], list[str]] | None = None
+        # Daylight guard (set by the integration): no route while it is day.
+        self.daylight: Callable[[], bool] = lambda: False
         self._stand_ins: list[str] = []
         self._jitter: dict[date, float] = {}
         self._unsub_run: CALLBACK_TYPE | None = None
@@ -168,6 +171,8 @@ class SequenceEngine:
     @callback
     def async_run_now(self, name: str | None = None) -> Route:
         """Run one route now, whatever the master switch and the window."""
+        if self.daylight():
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="daylight")
         if self.running:
             raise ServiceValidationError(
                 translation_domain=DOMAIN, translation_key="sequence_running"
@@ -279,7 +284,12 @@ class SequenceEngine:
     @callback
     def _handle_run(self, now: datetime) -> None:
         self._unsub_run = None
-        if self.active and not self.running and self._current_window(now) is not None:
+        if (
+            self.active
+            and not self.running
+            and not self.daylight()
+            and self._current_window(now) is not None
+        ):
             if (route := self._choose_route()) is not None:
                 self._start_route(route)
             else:
@@ -378,6 +388,12 @@ class SequenceEngine:
             self._notify()
 
     @callback
+    def async_check_daylight(self) -> None:
+        """Daylight guard: stop the running route and switch its lights off."""
+        if self.daylight() and (self.running or self._controller.owned_on(OWNER_SEQUENCE)):
+            self._stop_route(gradual=True)
+
+    @callback
     def _handle_failure(self, entity_id: str, turn_on: bool, owner: str) -> None:
         """A route light did not turn on: light another one of its room."""
         route = self.route
@@ -461,9 +477,13 @@ class SequenceEngine:
             if cancelled is not None:
                 # Let the cancelled route finish its last switch first.
                 await asyncio.wait([cancelled])
+            lights = self._controller.owned_on(OWNER_SEQUENCE)
+            interval = self._settings.stop_interval
+            if self.daylight() and len(lights) > 1:
+                interval = min(interval, DAYLIGHT_OFF_MAX_S / (len(lights) - 1))
             await self._controller.async_turn_off_gradually(
-                self._controller.owned_on(OWNER_SEQUENCE),
-                self._settings.stop_interval,
+                lights,
+                interval,
                 **{k: v for k, v in extra.items() if v is not None},
             )
         finally:

@@ -1,19 +1,23 @@
 """Context: holidays, weather and darkness.
 
-* Holidays come from an optional calendar: any all-day event, or any event
-  covering local 12:00, makes that date a holiday. They change the night
-  type (``plan.day_type``) for tonight and for learned nights, and the
-  morning workday rule. Events are fetched once per range and cached for
-  the day; if the calendar cannot be read, the plain weekday rule is used.
+* Workdays come from the Workday integration (``workday.check_date``, cached
+  per date) when a workday sensor is set; otherwise holidays come from an
+  optional calendar: any all-day event, or any event covering local 12:00,
+  makes that date a holiday. They decide the night type (``plan.day_type``)
+  for tonight and for learned nights, and the morning type. Calendar events
+  are fetched once per range and cached for the day; if neither can be read,
+  the plain weekday rule is used.
 * Bad weather is read from an optional weather entity when a window starts.
 * Darkness: an optional illuminance sensor moves the evening window start
   to the moment it has stayed below the threshold for 5 minutes, clamped
-  around sunset, and may end the morning window early. Once decided, a
+  around sunset, ends the wake-up window when it has been light for 5
+  minutes, and tells the daylight guard when it is day. Once decided, a
   start or end is kept for that evening or morning.
 """
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Mapping
 from contextlib import suppress
 from datetime import date, datetime, time, timedelta
@@ -51,6 +55,7 @@ from .const import (
     CONF_DARKNESS_THRESHOLD,
     CONF_HOLIDAY_CALENDAR,
     CONF_WEATHER_ENTITY,
+    CONF_WORKDAY_SENSOR,
     DARKNESS_CONFIRM,
     DEFAULT_BAD_WEATHER_BOOST,
     DEFAULT_DARKNESS_EARLIEST,
@@ -59,6 +64,8 @@ from .const import (
     NIGHT_TYPE_CALENDAR,
     NIGHT_TYPE_CALENDAR_UNAVAILABLE,
     NIGHT_TYPE_RULE,
+    NIGHT_TYPE_WORKDAY,
+    NIGHT_TYPE_WORKDAY_UNAVAILABLE,
     START_CLAMPED_EARLIEST,
     START_CLAMPED_LATEST,
     START_DARKNESS,
@@ -113,7 +120,13 @@ class ContextProvider:
     ) -> None:
         """Initialize the context provider."""
         self.hass = hass
-        self._calendar: str | None = config.get(CONF_HOLIDAY_CALENDAR) or None
+        # Workday is preferred over the calendar.
+        self._workday: str | None = config.get(CONF_WORKDAY_SENSOR) or None
+        self._calendar: str | None = (
+            None if self._workday else config.get(CONF_HOLIDAY_CALENDAR) or None
+        )
+        self._workdays: dict[date, bool] = {}
+        self.workday_ok = True
         self._weather: str | None = config.get(CONF_WEATHER_ENTITY) or None
         self.boost = float(config.get(CONF_BAD_WEATHER_BOOST, DEFAULT_BAD_WEATHER_BOOST)) / 100
         self._on_change = on_change
@@ -141,7 +154,7 @@ class ContextProvider:
         """Follow the darkness sensor; read the holidays now and every day."""
         if self.darkness is not None:
             self.darkness.async_start()
-        if self._calendar is not None:
+        if self._calendar is not None or self._workday is not None:
             self._refresh_holidays()
             self._unsub_noon = async_track_time_change(
                 self.hass, self._handle_noon, hour=12, minute=5, second=0
@@ -175,10 +188,21 @@ class ContextProvider:
     # ------------------------------------------------------------------
     @property
     def night_type_source(self) -> str:
-        """calendar / weekday_rule / calendar_unavailable."""
+        """workday / calendar / weekday_rule, or *_unavailable."""
+        if self._workday is not None:
+            return NIGHT_TYPE_WORKDAY if self.workday_ok else NIGHT_TYPE_WORKDAY_UNAVAILABLE
         if self._calendar is None:
             return NIGHT_TYPE_RULE
         return NIGHT_TYPE_CALENDAR if self.calendar_ok else NIGHT_TYPE_CALENDAR_UNAVAILABLE
+
+    @property
+    def workdays(self) -> dict[date, bool] | None:
+        """Dates classified by Workday, or None when it is not usable."""
+        return self._workdays if self._workday and self.workday_ok else None
+
+    def daylight(self) -> bool:
+        """True when the illuminance sensor says it is day (daylight guard)."""
+        return self.darkness is not None and self.darkness.daylight()
 
     @property
     def holidays(self) -> set[date] | None:
@@ -186,15 +210,18 @@ class ContextProvider:
         return self._holidays if self._calendar and self.calendar_ok else None
 
     def night_type(self, night: date) -> str:
-        """Type of the night starting on a date (holidays included)."""
-        return day_type(night, self.holidays)
+        """Type of the night starting on a date (workdays and holidays included)."""
+        return day_type(night, self.holidays, self.workdays)
 
     def is_workday(self, day: date) -> bool:
-        """Workday rule of the morning window (holidays included)."""
-        return is_workday(day, self.holidays)
+        """Whether a date is a workday (the type of its morning)."""
+        return is_workday(day, self.holidays, self.workdays)
 
     async def async_ensure_holidays(self, first: date, last: date) -> None:
-        """Fetch the holidays of [first, last] unless already fetched today."""
+        """Know the workdays or holidays of [first, last]."""
+        if self._workday is not None:
+            await self._async_ensure_workdays(first, last)
+            return
         if self._calendar is None:
             return
         today = dt_util.now().date()
@@ -234,6 +261,45 @@ class ContextProvider:
         self._range = (first, last)
         self._fetched_on = today
         self.calendar_ok = True
+
+    async def _async_ensure_workdays(self, first: date, last: date) -> None:
+        """Ask Workday about each date not cached yet (classification is per date)."""
+        state = self.hass.states.get(str(self._workday))
+        if state is None or state.state in _UNKNOWN:
+            self._workday_unavailable("workday sensor unavailable")
+            return
+        missing = []
+        day = first
+        while day <= last:
+            if day not in self._workdays:
+                missing.append(day)
+            day += timedelta(days=1)
+        if not missing:
+            self.workday_ok = True
+            return
+
+        async def _check(day: date) -> tuple[date, bool]:
+            response = await self.hass.services.async_call(
+                "workday",
+                "check_date",
+                {"entity_id": self._workday, "check_date": day.isoformat()},
+                blocking=True,
+                return_response=True,
+            )
+            return day, bool((response or {})[str(self._workday)]["workday"])
+
+        try:
+            results = await asyncio.gather(*(_check(day) for day in missing))
+        except (HomeAssistantError, KeyError, TypeError, ValueError) as err:
+            self._workday_unavailable(str(err))
+            return
+        self._workdays.update(results)
+        self.workday_ok = True
+
+    def _workday_unavailable(self, why: str) -> None:
+        if self.workday_ok:
+            _LOGGER.warning("Workday sensor %s not usable (%s)", self._workday, why)
+        self.workday_ok = False
 
     def _unavailable(self, why: str) -> None:
         if self.calendar_ok:
@@ -379,8 +445,17 @@ class DarknessTracker:
             self._evenings[day] = (hi, START_CLAMPED_LATEST)
         return hi, START_CLAMPED_LATEST
 
+    def daylight(self) -> bool:
+        """True once it has stayed above the threshold for 5 minutes."""
+        return (
+            self._available
+            and self._above_since is not None
+            and dt_util.utcnow() >= self._above_since + DARKNESS_CONFIRM
+        )
+
     def morning_end(self, day: date, start: datetime, end: datetime) -> datetime:
-        """End of a morning window: earlier if it has been light for 5 minutes."""
+        """End of a wake-up window: when it has been light for 5 minutes,
+        at the latest `end` (sunrise plus the allowed extension)."""
         if day in self._mornings:
             return self._mornings[day]
         if (

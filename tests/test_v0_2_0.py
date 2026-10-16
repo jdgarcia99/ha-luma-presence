@@ -324,7 +324,7 @@ async def test_migration_from_version_1(hass: HomeAssistant, fake_lights) -> Non
     upper = floors.async_create("Planta piso")
 
     entry = await _setup(hass, V1_OPTIONS, version=1)
-    assert entry.version == 2
+    assert entry.version == 3  # then migrated on to the v0.7.0 options
     for key, value in V1_OPTIONS.items():
         assert entry.options[key] == value
     assert entry.options[CONF_REAR_LIGHTS] == []

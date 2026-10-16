@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 import logging
 import math
 import random
@@ -52,6 +52,8 @@ from .const import (
     DREAM_NO_WINDOW,
     DREAM_NOT_ENOUGH_NIGHTS,
     MODE_DREAM,
+    MORNING_AXIS_MIN,
+    MORNING_AXIS_START_H,
     STORE_VERSION,
     signal_update,
 )
@@ -60,6 +62,7 @@ from .learning import LearningGate
 from .model import (
     DAY_TYPES,
     FOLLOW_MIN,
+    MORNING_AXIS_OFFSET,
     SLOT_MIN,
     SLOTS,
     DayTypeModel,
@@ -68,6 +71,7 @@ from .model import (
     boost_model,
     build_model,
     day_type,
+    morning_rooms,
     night_rooms,
     overlap,
     period_of,
@@ -340,6 +344,29 @@ def dreamed_hours(
     return [[round(v / HEATMAP_NIGHTS, 3) for v in row] for row in dreamed]
 
 
+def mornings_from_nights(
+    nights: list[tuple[NightData, float, float]],
+    today: date,
+    half_life: float,
+    built_at: datetime,
+    kinds: dict[date, str] | None = None,
+    night_type_source: str | None = None,
+) -> RoomModel:
+    """The morning model: the mornings after the learned nights (pure).
+
+    A morning's type is the type of the night before it.
+    """
+    rooms = [morning_rooms(data) for data, _, _ in nights]
+    return build_model(
+        [r for r in rooms if r is not None],
+        today,
+        half_life,
+        built_at,
+        kinds,
+        night_type_source,
+    )
+
+
 def model_from_nights(
     nights: list[tuple[NightData, float, float]],
     today: date,
@@ -395,6 +422,7 @@ class DreamEngine:
         self._player = player
         self._on_lights = on_lights
         self.model: RoomModel | None = None
+        self.morning_model: RoomModel | None = None
         self.status: dict[str, Any] = {}
         # Status of the last preview, kept apart from tonight's.
         self.preview_status: dict[str, Any] = {}
@@ -486,19 +514,38 @@ class DreamEngine:
             )
             kinds = {data.night: self.context.night_type(data.night) for data, _, _ in nights}
             source = self.context.night_type_source
+        built_at = dt_util.utcnow()
         model = await self.hass.async_add_executor_job(
             model_from_nights,
             nights,
             today,
             self._settings.dream_half_life,
-            dt_util.utcnow(),
+            built_at,
+            kinds,
+            source,
+        )
+        mornings = await self.hass.async_add_executor_job(
+            mornings_from_nights,
+            nights,
+            today,
+            self._settings.dream_half_life,
+            built_at,
             kinds,
             source,
         )
         if rebuild == self._rebuilds:  # a newer rebuild wins over an older one
             self.model = model
+            self.morning_model = mornings
             self._notify()
         return model
+
+    def morning_first_on(self, kind: str) -> time | None:
+        """Learned first switch-on of the mornings of a type (20th percentile)."""
+        model = self.morning_model.day_types.get(kind) if self.morning_model else None
+        if model is None or model.first_on is None or not model.nights:
+            return None
+        minutes = MORNING_AXIS_START_H * 60 + int(model.first_on)
+        return time(minutes // 60, minutes % 60)
 
     # ------------------------------------------------------------------
     # Planning
@@ -533,7 +580,10 @@ class DreamEngine:
             self._notify()
             return plan
 
-        model = self.model or await self.async_rebuild()
+        if self.model is None or self.morning_model is None:
+            await self.async_rebuild()
+        model = self.morning_model if morning else self.model
+        assert model is not None
         day_model = model.day_types.get(kind)
         nights = model.valid_nights(kind)
         if day_model is None or nights < self._settings.dream_min_days:
@@ -546,13 +596,19 @@ class DreamEngine:
                 context=context,
             )
             return None
-        if (sun := self._sun(night)) is None:
-            self._set_status(None, DREAM_NO_WINDOW, kind, preview=preview)
-            return None
-        offset = sun[0] - 60 * 60
-        length = min(int((sun[1] - offset) // 60), SLOTS * SLOT_MIN)
+        if morning:
+            # Mornings use their own clock axis (05:00-10:00).
+            offset, length = float(MORNING_AXIS_OFFSET), MORNING_AXIS_MIN
+        else:
+            if (sun := self._sun(night)) is None:
+                self._set_status(None, DREAM_NO_WINDOW, kind, preview=preview)
+                return None
+            offset = sun[0] - 60 * 60
+            length = min(int((sun[1] - offset) // 60), SLOTS * SLOT_MIN)
         start = max(0, math.ceil((bounds[0] - offset) / 60))
         end = min(length, math.floor((bounds[1] - offset) / 60))
+        if morning and day_model.last_off is not None and day_model.last_off > start:
+            end = min(end, math.ceil(day_model.last_off))  # the house empties then
         if end <= start:
             self._set_status(None, DREAM_NO_WINDOW, kind, preview=preview)
             return None
@@ -771,9 +827,17 @@ class DreamEngine:
         model = self.model
         if model is None:
             return {}
+        mornings = self.morning_model
         return {
             "built_at": model.built_at.isoformat(),
             "night_type_source": model.night_type_source,
+            "mornings": {
+                kind: {
+                    "nights": len(dm.nights),
+                    "first_on": str(self.morning_first_on(kind) or "") or None,
+                }
+                for kind, dm in (mornings.day_types.items() if mornings else [])
+            },
             **{
                 kind: {
                     "nights": len(dm.nights),

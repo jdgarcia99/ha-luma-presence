@@ -217,7 +217,7 @@ class DreamModelSensor(LumaEntity, SensorEntity):
     """Valid learned nights in the Dream room model."""
 
     _attr_icon = "mdi:home-analytics"
-    _unrecorded_attributes = frozenset({"weekday", "weekend"})
+    _unrecorded_attributes = frozenset({"weekday", "weekend", "mornings"})
 
     def __init__(self, entry: LumaConfigEntry) -> None:
         """Initialize the sensor."""

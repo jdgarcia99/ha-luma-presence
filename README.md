@@ -85,7 +85,7 @@ Setup walks through the same sections that the integration's **Configure** butto
 | Learning | Indoor floors, indoor areas, extra entities, excluded entities, *Automatically exclude indicator LEDs*, and *Learn only from human actions* (ignores changes made by automations and scripts) |
 | Learning preview | Read-only list of the entities that will be learned, and of the indicator LEDs left out automatically |
 | People and alarm | People, alarm panel, [alarm control](#alarm-control), and the learning margins: hours discarded before an absence, and hours learning stays paused after returning |
-| Context | [Darkness-based start, morning window, holiday calendar and weather](#context) (all optional, off by default) |
+| Context | [Darkness-based start, wake-up, daylight guard, workdays and holidays, weather](#context) (optional; only the Replay/Dream wake-up is on by default) |
 | Night sequences | Delay between the steps of a route and time spent at its destination (see [Night sequences](#night-sequences)) |
 | Monitoring | Minutes a light may stay unavailable before an alert (see [Unavailable lights](#unavailable-lights)), where to send the morning report, and how long to wait for a light to [obey](#lights-that-do-not-obey) |
 
@@ -284,21 +284,31 @@ Turning the simulation on while someone is at home is treated as a **test**, not
 
 ## Context
 
-Everything in the **Context** section is optional and off by default; `sensor.luma_presence_context` shows what it changes tonight (`normal` or `modified`, with `night_type`, `night_type_source`, `weather_condition`, `bad_weather`, `boost_applied`, `evening_start_reason` and `morning_window`).
+Everything in the **Context** section is optional (only the wake-up of Replay and Dream is on by default); `sensor.luma_presence_context` shows what it changes tonight (`normal` or `modified`, with `night_type`, `night_type_source`, `weather_condition`, `bad_weather`, `boost_applied`, `evening_start_reason` and `morning_window`).
 
 ### Darkness-based start
 
 With an *Illuminance sensor*, the evening window (Sun, Replay and Dream modes) starts when the illuminance has stayed below the *Darkness threshold* (50 lx by default) for 5 minutes, but never before *Earliest start* (60 minutes before sunset by default) nor after *Latest start* (30 minutes after sunset). If it is already dark at the earliest start, the window starts then; if it is not dark by the latest start, it starts anyway. Once an evening has started it does not move. Without readings, sunset is used. The random start delay still applies. `sensor.luma_presence_next_event` shows the reason in `start_reason`: `darkness`, `sunset`, `clamped_earliest`, `clamped_latest` or `sensor_unavailable`. The Dream model keeps measuring time from sunset.
 
-### Morning window
+### Wake-up
 
-With *Simulate dark mornings*, a second window runs from *Morning start* (06:30) until *Morning end* (08:30) or sunrise, whichever comes first, or earlier if the illuminance sensor has been above the threshold for 5 minutes. If the sun is already up at the morning start, there is no morning window that day. With *Only on workdays* (on by default) it skips Saturdays, Sundays and holidays. It runs only while the master switch is on.
+LumaPresence can wake the house up before dawn, as people getting ready do:
 
-Sun and Time modes run the random loop with the usual limits; Replay plays the source night's events that fall inside the morning; Dream generates the morning with the same model (a second segment of the same night). Night sequences and learning are unaffected.
+- **Start.** Sun and Time modes start at *Wake-up start* (06:30 by default; *Wake-up in Sun and Time modes*, off by default). Replay and Dream start at the time the house usually wakes up — the learned first switch-on of the morning (20th percentile, per morning type) — but never before *Wake-up start* (*Wake-up in Replay and Dream modes*, on by default; without learned mornings, *Wake-up start* is used).
+- **End.** With an illuminance sensor, when it has been light for 5 minutes; if it is still dark, up to *Wake-up may last after sunrise* (30 minutes by default) after sunrise. Without a sensor, at sunrise.
+- **Leaving before dawn.** If the master switch is turned on during the wake-up (for example when arming the alarm on the way out), it starts after a random 0–10 minute delay.
+- **Morning type.** The morning of day D is a weekday morning when D is a workday (not Saturday, Sunday or a holiday) — the same rule as the night type.
+- Sun and Time run the random loop with the usual limits. Replay plays the morning of its source night. Dream has a separate morning model on a clock axis (05:00–10:00, 15-minute slots) with its own rates, durations, transitions, first switch-on and typical last switch-off; it generates and scores the morning with that model, until the typical last switch-off. Night sequences and learning are unaffected.
 
-### Holidays
+### Daylight guard
 
-With a *Holiday calendar*, any all-day event (or event covering midday) marks a holiday. The night starting on day D is a **weekend** night when D+1 is a Saturday, Sunday **or holiday**: the eve of a Wednesday holiday is a weekend night, and the holiday's own night is a weekday night because Thursday is a workday. The same rule decides the workdays of the morning window and classifies the learned nights used by Replay and Dream. Past events are read once per range and cached for the day; if the calendar cannot be read, the plain day-of-the-week rule is used and the model sensor says so (`night_type_source: calendar_unavailable`).
+With an illuminance sensor, a daylight guard is always active, in every mode: as soon as it has been light for 5 minutes, it stops the simulation, Replay, Dream and night routes, switches off the lights LumaPresence turned on gradually within 3 minutes, and no light is switched on while it is day (the *Test sequence* button and `run_sequence` refuse too). Without a sensor, the windows already end at sunrise.
+
+### Workdays and holidays
+
+With a *Workday sensor* (from the [Workday integration](https://www.home-assistant.io/integrations/workday/)), every date is classified with `workday.check_date` (cached per date): a date is not a workday when Workday says so. It is preferred over the holiday calendar. If Workday does not answer, the plain day-of-the-week rule is used and the context sensor shows `night_type_source: workday_unavailable`. Do not choose the calendar that Workday creates as the holiday calendar: its events are the **workdays**, so it is rejected.
+
+With a *Holiday calendar* instead, any all-day event (or event covering midday) marks a holiday. The night starting on day D is a **weekend** night when D+1 is a Saturday, Sunday **or holiday**: the eve of a Wednesday holiday is a weekend night, and the holiday's own night is a weekday night because Thursday is a workday. The same rule decides the type of each morning and classifies the learned nights used by Replay and Dream. Past events are read once per range and cached for the day; if the calendar cannot be read, the plain day-of-the-week rule is used and the model sensor says so (`night_type_source: calendar_unavailable`).
 
 ### Weather
 

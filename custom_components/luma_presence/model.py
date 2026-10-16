@@ -22,7 +22,12 @@ from statistics import median
 
 from homeassistant.const import STATE_ON
 
-from .const import REPLAY_MIN_COVERAGE
+from .const import (
+    MORNING_AXIS_MIN,
+    MORNING_AXIS_START_H,
+    MORNING_FIRST_ON_QUANTILE,
+    REPLAY_MIN_COVERAGE,
+)
 from .plan import DAY_S, DAY_TYPES, NOON_S, WEEKDAY, WEEKEND, day_type  # noqa: F401  (day types are re-exported for Dream)
 from .replay import NightData
 
@@ -41,6 +46,9 @@ LATE_NIGHT = "late_night"
 SMALL_HOURS = "small_hours"
 
 Interval = tuple[float, float]
+
+# Night clock of 05:00 on the morning after a night (axis minute 0).
+MORNING_AXIS_OFFSET = (24 + MORNING_AXIS_START_H - 12) * 3600
 
 
 def period_of(clock_minute: float) -> str:
@@ -145,7 +153,26 @@ def night_rooms(
     `sunset` and `sunrise` are night clock seconds.
     """
     offset = sunset - BEFORE_SUNSET_MIN * 60
-    length = int(min(sunrise - offset, MAX_AXIS_MIN * 60) // 60)
+    return rooms_on_axis(
+        data, offset, int(min(sunrise - offset, MAX_AXIS_MIN * 60) // 60), room_of
+    )
+
+
+def morning_rooms(
+    data: NightData, room_of: Callable[[str, str | None], str] = room_key
+) -> NightRooms | None:
+    """The morning after a learned night on the clock axis 05:00-10:00."""
+    return rooms_on_axis(data, MORNING_AXIS_OFFSET, MORNING_AXIS_MIN, room_of)
+
+
+def rooms_on_axis(
+    data: NightData,
+    offset: float,
+    length: int,
+    room_of: Callable[[str, str | None], str] = room_key,
+) -> NightRooms | None:
+    """Room occupancy of a learned night on an axis of `length` minutes
+    starting at night clock `offset` (seconds)."""
     if length <= 0:
         return None
 
@@ -230,6 +257,10 @@ class DayTypeModel:
     rooms: dict[str, RoomStats]
     concurrency_cap: int
     concurrency: list[float]  # expected occupied rooms per slot
+    # Axis minute of the first switch-on (20th percentile) and of the last
+    # switch-off (median) of the nights, when known.
+    first_on: float | None = None
+    last_off: float | None = None
 
 
 @dataclass
@@ -359,12 +390,23 @@ def build_day_type(nights: list[NightRooms], today: date, half_life: float) -> D
             weight += weights[n.night]
         profile[s] = total / weight if weight else 0.0
     cap = max(1, math.ceil(weighted_quantile(samples, CONCURRENCY_PERCENTILE)))
+    firsts: list[tuple[float, float]] = []
+    lasts: list[tuple[float, float]] = []
+    for n in nights:
+        starts_inside = [s for spans in n.intervals.values() for s, _, inside in spans if inside]
+        if starts_inside:
+            firsts.append((min(starts_inside), weights[n.night]))
+        ends = [e for spans in n.intervals.values() for _, e, _ in spans if e < n.length]
+        if ends:
+            lasts.append((max(ends), weights[n.night]))
     return DayTypeModel(
         nights=sorted(n.night for n in nights),
         atypical=sorted(atypical),
         rooms=stats,
         concurrency_cap=cap,
         concurrency=profile,
+        first_on=weighted_quantile(firsts, MORNING_FIRST_ON_QUANTILE) if firsts else None,
+        last_off=weighted_quantile(lasts, 0.5) if lasts else None,
     )
 
 
