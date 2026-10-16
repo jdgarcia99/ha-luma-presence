@@ -38,6 +38,15 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.sun import get_astral_event_date, get_astral_event_next
 from homeassistant.util import dt as dt_util
 
+from .ai import (
+    AiAssistant,
+    Modifier,
+    RoomKeys,
+    apply_scenario,
+    area_names,
+    build_keys,
+    scenario_payload,
+)
 from .const import (
     CONF_DREAM_CANDIDATES,
     CONF_DREAM_MAX_SIMILARITY,
@@ -54,6 +63,7 @@ from .const import (
     MODE_DREAM,
     MORNING_AXIS_MIN,
     MORNING_AXIS_START_H,
+    SCENARIO_LOW_SCORE,
     STORE_VERSION,
     signal_update,
 )
@@ -309,13 +319,17 @@ def make_candidates(
     count: int,
     history: list[set[tuple[str, int]]],
     boost: float = 0.0,
+    scenario: tuple[Modifier, ...] = (),
 ) -> list[Candidate]:
     """Generate, score and compare `count` candidates (pure: runs in an executor).
 
-    With a weather `boost`, the same boosted model generates and scores the
-    candidates, so bad-weather nights are not rejected as unrealistic.
+    With a weather `boost` or an AI `scenario`, the same modified model
+    generates and scores the candidates, so these nights are not rejected as
+    unrealistic.
     """
     model = boost_model(model, boost, offset)
+    if scenario:
+        model = apply_scenario(model, scenario)
     period_at = period_function(offset)
     learned = learned_durations(model)
     candidates: list[Candidate] = []
@@ -431,6 +445,9 @@ class DreamEngine:
         self._rebuilds = 0  # only the latest rebuild may set the model
         # Holidays and weather (set by the integration).
         self.context: ContextProvider | None = None
+        # Optional AI scenarios, and the areas of route destinations (bathrooms).
+        self.ai: AiAssistant | None = None
+        self.destination_areas: Callable[[], set[str]] = set
         self._store: Store[dict[str, Any]] = Store(
             hass, STORE_VERSION, f"{DOMAIN}.{entry_id}.dream"
         )
@@ -618,29 +635,62 @@ class DreamEngine:
             for item in self._saved.get("history", [])
         ]
         boost = 0.0
-        if self.context is not None and self.context.weather()["bad"] and self.context.boost > 0:
+        bad_weather = self.context is not None and bool(self.context.weather()["bad"])
+        if bad_weather and self.context is not None and self.context.boost > 0:
             boost = self.context.boost
             context.append("bad_weather")
+        # An AI scenario changes tonight's evening (never the morning, never a preview).
+        scenario = None
+        scenario_reason: str | None = None
+        keys: RoomKeys | None = None
+        if not morning and not preview and self.ai is not None and self.ai.enabled:
+            keys = self.room_keys(day_model)
+            payload = scenario_payload(
+                day_model,
+                keys,
+                kind,
+                night.month,
+                offset + 60 * 60,
+                bad_weather,
+                "holiday" in context,
+                southern=self.hass.config.latitude < 0,
+            )
+            scenario, scenario_reason = await self.ai.async_scenario(night, payload, keys)
+        base_seed = random.getrandbits(32)
+        count = int(self._config.get(CONF_DREAM_CANDIDATES, DEFAULT_DREAM_CANDIDATES))
+        max_similarity = float(
+            self._config.get(CONF_DREAM_MAX_SIMILARITY, DEFAULT_DREAM_MAX_SIMILARITY)
+        )
         candidates = await self.hass.async_add_executor_job(
             make_candidates,
             day_model,
             start,
             end,
             offset,
-            random.getrandbits(32),
-            int(self._config.get(CONF_DREAM_CANDIDATES, DEFAULT_DREAM_CANDIDATES)),
+            base_seed,
+            count,
             history,
             boost,
+            scenario.modifiers if scenario else (),
         )
         chosen, reason = choose_candidate(
-            candidates,
-            self._settings.dream_min_score,
-            float(
-                self._config.get(CONF_DREAM_MAX_SIMILARITY, DEFAULT_DREAM_MAX_SIMILARITY)
-            ),
+            candidates, self._settings.dream_min_score, max_similarity
         )
+        if scenario is not None and chosen.score < self._settings.dream_min_score:
+            # Not believable enough: a normal night instead.
+            scenario, scenario_reason = None, SCENARIO_LOW_SCORE
+            candidates = await self.hass.async_add_executor_job(
+                make_candidates, day_model, start, end, offset, base_seed, count, history, boost
+            )
+            chosen, reason = choose_candidate(
+                candidates, self._settings.dream_min_score, max_similarity
+            )
         plan = self._build_plan(night, bounds, offset, chosen, reason, day_model)
         plan.preview = preview
+        if scenario is not None and keys is not None:
+            plan.scenario = keys.to_names(scenario.text)
+            plan.explanation = keys.to_names(scenario.explanation)
+            context.append("scenario")
         self._set_status(
             chosen.score,
             reason,
@@ -650,6 +700,9 @@ class DreamEngine:
             preview=preview,
             context=context,
             boost=boost,
+            scenario=plan.scenario,
+            explanation=plan.explanation,
+            scenario_reason=scenario_reason,
         )
         if not preview:
             history_items = list(self._saved.get("history", []))
@@ -747,6 +800,17 @@ class DreamEngine:
             names=names,
         )
 
+    def room_keys(self, model: DayTypeModel) -> RoomKeys:
+        """Opaque keys for tonight's rooms, busiest first (for the AI)."""
+        names, aliases = area_names(self.hass, model.rooms)
+        return build_keys(
+            model.rooms,
+            names,
+            aliases,
+            self.destination_areas(),
+            order=lambda room: (-sum(model.rooms[room].occupancy), room),
+        )
+
     def _room_name(self, room: str) -> str:
         if room.startswith("light:"):
             light = room.removeprefix("light:")
@@ -781,6 +845,9 @@ class DreamEngine:
             "nights": extra.get("nights"),
             "context": extra.get("context", []),
             "boost_applied": bool(extra.get("boost")),
+            "scenario": extra.get("scenario"),
+            "explanation": extra.get("explanation"),
+            "scenario_reason": extra.get("scenario_reason"),
         }
         if preview:
             self.preview_status = status

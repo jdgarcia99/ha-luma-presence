@@ -21,6 +21,7 @@ from .const import (
 )
 
 if TYPE_CHECKING:
+    from .ai import AiAssistant
     from .alarm import AlarmController
     from .ambience import AmbienceEngine
     from .context import ContextProvider
@@ -152,6 +153,7 @@ class LumaRuntime:
     covers: CoverEngine | None = None
     ambience: AmbienceEngine | None = None
     deterrence: DeterrenceEngine | None = None
+    ai: AiAssistant | None = None
 
     async def async_setting_changed(self, key: str) -> None:
         """React to a setting changed from one of the config entities."""

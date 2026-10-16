@@ -20,11 +20,13 @@ from homeassistant.helpers.event import async_track_sunrise
 from homeassistant.helpers.translation import async_get_translations
 from homeassistant.util import dt as dt_util
 
+from .ai import AiAssistant, area_names, build_keys, report_payload
 from .const import DOMAIN, EVENT_ACTION, EVENT_NIGHT_REPORT, OWNER_AMBIENCE
 from .dream import DreamEngine
 from .light_control import LightController
 from .models import LumaSettings
-from .plan import PlanPlayer, night_of
+from .plan import NightPlan, PlanPlayer, clock_text, night_of
+from .scope import entity_area_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,6 +50,7 @@ class NightReporter:
         player: PlanPlayer,
         notify_target: str | None,
         dream: DreamEngine | None = None,
+        ai: AiAssistant | None = None,
     ) -> None:
         """Initialize the reporter."""
         self.hass = hass
@@ -56,6 +59,9 @@ class NightReporter:
         self._controller = controller
         self._player = player
         self._dream = dream
+        self._ai = ai
+        # The last report sent (diagnostics).
+        self.last_report: dict[str, Any] | None = None
         self._notify_target = notify_target or None
         self._unsubs: list[CALLBACK_TYPE] = []
         self._reset()
@@ -68,6 +74,8 @@ class NightReporter:
         self._covers: set[str] = set()
         self._ambience_sessions = 0
         self._deterrence = 0
+        self._deterrence_facades: list[str] = []
+        self._routes = 0
 
     @callback
     def async_start(self) -> None:
@@ -90,9 +98,13 @@ class NightReporter:
         action = data.get("action")
         if action in _STARTS:
             self._active = True
+            if action == "sequence_started":
+                self._routes += 1
         elif action == "deterrence":
             self._active = True
             self._deterrence += 1
+            if data.get("facade"):
+                self._deterrence_facades.append(str(data["facade"]))
         elif data.get("kind") == "cover":
             self._active = True
             self._cover_moves += 1
@@ -115,6 +127,7 @@ class NightReporter:
         # A new night starts: failures are reset, unresponsive issues of
         # lights that obeyed all night are cleared.
         self._controller.end_night()
+        self.last_report = payload
         self.hass.bus.async_fire(EVENT_NIGHT_REPORT, payload)
         if self._notify_target:
             self.hass.async_create_task(
@@ -143,14 +156,61 @@ class NightReporter:
             "covers": sorted(self._covers),
             "ambience_sessions": self._ambience_sessions,
             "deterrence_reactions": self._deterrence,
+            "deterrence_facades": list(self._deterrence_facades),
+            "routes_run": self._routes,
+            "scenario": plan.scenario if tonight and plan else None,
+            "explanation": plan.explanation if tonight and plan else None,
+            "room_times": self._room_times(plan) if tonight and plan else {},
+            "failures_by_room": self._failures_by_room(),
         }
+
+    def _room_of(self, entity_id: str) -> str:
+        return entity_area_id(self.hass, entity_id) or f"light:{entity_id}"
+
+    def _room_times(self, plan: NightPlan) -> dict[str, list[str]]:
+        """Rooms used last night and when, by room id."""
+        start, end = plan.window
+        open_at = {t: start for t, v in plan.state_at(start).items() if v == "on"}
+        room_of = {
+            t.target: t.room or self._room_of(t.target) for t in plan.transitions
+        } | {t: self._room_of(t) for t in open_at}
+        times: dict[str, list[str]] = {}
+        for transition in plan.in_window():
+            if transition.state == "on":
+                open_at.setdefault(transition.target, transition.seconds)
+            elif (began := open_at.pop(transition.target, None)) is not None:
+                times.setdefault(room_of[transition.target], []).append(
+                    f"{clock_text(began)}-{clock_text(transition.seconds)}"
+                )
+        for target, began in open_at.items():
+            times.setdefault(room_of[target], []).append(f"{clock_text(began)}-{clock_text(end)}")
+        return times
+
+    def _failures_by_room(self) -> dict[str, int]:
+        result: dict[str, int] = {}
+        for entity_id, count in self._controller.failure_counts.items():
+            room = self._room_of(entity_id)
+            result[room] = result.get(room, 0) + count
+        return result
 
     def _context(self) -> list[str]:
         if self._dream is None:
             return []
         return list(self._dream.status.get("context", []))
 
+    async def _async_ai_text(self, payload: dict[str, Any]) -> str | None:
+        """The report written by the AI, with real room names, or None."""
+        if self._ai is None or not self._ai.enabled or not self._ai.report_enabled:
+            return None
+        rooms = set(payload.get("room_times", {})) | set(payload.get("failures_by_room", {}))
+        names, aliases = area_names(self.hass, rooms)
+        keys = build_keys(rooms, names, aliases)
+        return await self._ai.async_report(report_payload(payload, keys), keys)
+
     async def _async_notify(self, payload: dict[str, Any]) -> None:
+        if (message := await self._async_ai_text(payload)) is not None:
+            await self._async_send(message)
+            return
         translations = await async_get_translations(
             self.hass, self.hass.config.language, "exceptions", [DOMAIN]
         )
@@ -171,6 +231,11 @@ class NightReporter:
             ambience=payload["ambience_sessions"],
             deterrence=payload["deterrence_reactions"],
         )
+        if payload.get("scenario"):
+            message += f" ({payload['scenario']})"
+        await self._async_send(message)
+
+    async def _async_send(self, message: str) -> None:
         target = str(self._notify_target)
         try:
             if target.startswith("notify.") and self.hass.states.get(target) is not None:

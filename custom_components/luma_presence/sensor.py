@@ -177,6 +177,9 @@ class RealismSensor(LumaEntity, SensorEntity):
             "candidates": status.get("candidates", 0),
             "similarity_max": status.get("similarity_max"),
             "day_type": status.get("day_type"),
+            "scenario": status.get("scenario"),
+            "explanation": status.get("explanation"),
+            "scenario_reason": status.get("scenario_reason"),
         }
 
 
@@ -218,6 +221,8 @@ class TonightPlanSensor(LumaEntity, SensorEntity):
             "rooms": plan.rooms,
             "timeline": plan.compact(),
             "covers": cover_moves,
+            "scenario": plan.scenario,
+            "explanation": plan.explanation,
         }
 
 

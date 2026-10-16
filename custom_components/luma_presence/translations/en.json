@@ -93,6 +93,7 @@
           "covers": "Covers",
           "ambience": "Ambience",
           "deterrence": "Deterrence",
+          "ai": "AI",
           "monitoring": "Monitoring",
           "save": "Save"
         }
@@ -288,6 +289,22 @@
           "deterrence_enabled": "Off by default. Active while it is dark: from the evening darkness decision (or sunset) until it is day, whether or not the simulation window is running.",
           "deterrence_cooldown_min": "A trigger does not react again until this long after its last reaction.",
           "deterrence_max_per_night": "Further detections are ignored until the next night."
+        }
+      },
+      "ai": {
+        "title": "AI (optional)",
+        "description": "Optional generative AI through an AI task entity (for example a cloud or local model you have set up). It can add a scenario to some Dream evenings and write the morning report. What is sent, and nothing else: the night type, month and season, sunset rounded to 15 minutes, bad-weather and holiday flags, and for each room an opaque key (room_1, room_2...) with a generic type (bedroom, bathroom, kitchen, living, office, hall, other), its expected occupancy per hour, typical hours and typical visit length; for the report, last night's simulation with the same keys. Never sent: entity IDs, room or area names, people, learned events, dates of real days, location, alarm states or cameras. Room names are put back locally. Leave the entity empty to turn everything off.",
+        "data": {
+          "ai_task_entity": "AI task entity",
+          "ai_scenario_probability": "Dream evenings with a scenario",
+          "ai_report": "Write the morning report with AI",
+          "ai_max_calls_per_day": "AI calls per day at most"
+        },
+        "data_description": {
+          "ai_task_entity": "Empty: AI features off.",
+          "ai_scenario_probability": "Share of Dream evenings that get a scenario (guests for dinner, movie night...). The wake-up is never changed.",
+          "ai_report": "The notification text is written by the AI; the event keeps its data. If the AI fails, the usual text is sent.",
+          "ai_max_calls_per_day": "When the limit is reached, AI features are skipped until the next day."
         }
       }
     },

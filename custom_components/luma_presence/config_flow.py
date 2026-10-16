@@ -53,6 +53,10 @@ from homeassistant.helpers.selector import (
 from .ambience import parse_media
 from .const import (
     ALARM_ACTIVATE_CHOICES,
+    CONF_AI_MAX_CALLS,
+    CONF_AI_REPORT,
+    CONF_AI_SCENARIO_PROBABILITY,
+    CONF_AI_TASK_ENTITY,
     CONF_ALARM,
     CONF_ALARM_ACTIVATE_STATES,
     CONF_ALARM_CONTROL,
@@ -111,6 +115,9 @@ from .const import (
     CONF_WEATHER_ENTITY,
     CONF_WORKDAY_SENSOR,
     COVERS_MODES,
+    DEFAULT_AI_MAX_CALLS,
+    DEFAULT_AI_REPORT,
+    DEFAULT_AI_SCENARIO_PROBABILITY,
     DEFAULT_ALARM_ACTIVATE_STATES,
     DEFAULT_ALARM_CONTROL,
     DEFAULT_AMBIENCE_QUIET_AFTER,
@@ -171,6 +178,7 @@ STEP_DREAM = "dream"
 STEP_COVERS = "covers"
 STEP_AMBIENCE = "ambience"
 STEP_DETERRENCE = "deterrence"
+STEP_AI = "ai"
 STEP_MONITORING = "monitoring"
 STEP_SAVE = "save"
 MENU_OPTIONS = [
@@ -185,6 +193,7 @@ MENU_OPTIONS = [
     STEP_COVERS,
     STEP_AMBIENCE,
     STEP_DETERRENCE,
+    STEP_AI,
     STEP_MONITORING,
     STEP_SAVE,
 ]
@@ -212,6 +221,7 @@ _EMPTY_VALUES: dict[str, dict[str, Any]] = {
     STEP_PRESENCE: {CONF_PERSONS: [], CONF_ALARM: None, CONF_ALARM_ACTIVATE_STATES: []},
     STEP_MONITORING: {CONF_REPORT_NOTIFY: ""},
     STEP_COVERS: {CONF_COVERS: []},
+    STEP_AI: {CONF_AI_TASK_ENTITY: None},
     STEP_AMBIENCE: {CONF_AMBIENCE_PLAYERS: [], CONF_AMBIENCE_MEDIA: ""},
     STEP_CONTEXT: {
         CONF_WORKDAY_SENSOR: None,
@@ -493,6 +503,34 @@ def _deterrence_schema(options: Mapping[str, Any]) -> vol.Schema:
                 default=options.get(CONF_DETERRENCE_MAX, DEFAULT_DETERRENCE_MAX),
             ): NumberSelector(
                 NumberSelectorConfig(min=1, max=50, step=1, mode=NumberSelectorMode.BOX)
+            ),
+        }
+    )
+
+
+def _ai_schema(options: Mapping[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Optional(
+                CONF_AI_TASK_ENTITY, description=_suggested(options, CONF_AI_TASK_ENTITY)
+            ): EntitySelector(EntitySelectorConfig(domain="ai_task")),
+            vol.Required(
+                CONF_AI_SCENARIO_PROBABILITY,
+                default=options.get(
+                    CONF_AI_SCENARIO_PROBABILITY, DEFAULT_AI_SCENARIO_PROBABILITY
+                ),
+            ): NumberSelector(
+                NumberSelectorConfig(
+                    min=0, max=100, step=5, unit_of_measurement="%", mode=NumberSelectorMode.SLIDER
+                )
+            ),
+            vol.Required(
+                CONF_AI_REPORT, default=options.get(CONF_AI_REPORT, DEFAULT_AI_REPORT)
+            ): BooleanSelector(),
+            vol.Required(
+                CONF_AI_MAX_CALLS, default=options.get(CONF_AI_MAX_CALLS, DEFAULT_AI_MAX_CALLS)
+            ): NumberSelector(
+                NumberSelectorConfig(min=1, max=20, step=1, mode=NumberSelectorMode.BOX)
             ),
         }
     )
@@ -965,6 +1003,17 @@ class LumaPresenceOptionsFlow(_LumaSteps, OptionsFlow):
         return self.async_show_form(
             step_id=STEP_DETERRENCE, data_schema=_deterrence_schema(self._options)
         )
+
+    async def async_step_ai(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Optional generative AI: Dream scenarios and the morning report text."""
+        if user_input is not None:
+            self._update(STEP_AI, user_input)
+            if not self._options.get(CONF_AI_TASK_ENTITY):
+                self._options.pop(CONF_AI_TASK_ENTITY, None)
+            return await self.async_step_init()
+        return self.async_show_form(step_id=STEP_AI, data_schema=_ai_schema(self._options))
 
     async def async_step_monitoring(
         self, user_input: dict[str, Any] | None = None

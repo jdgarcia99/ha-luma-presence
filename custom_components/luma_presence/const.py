@@ -214,6 +214,25 @@ DETERRENCE_PATH_DELAY_S: Final = (10.0, 25.0)
 DETERRENCE_STEP_DELAY_S: Final = (2.0, 5.0)
 DETERRENCE_HOLD_MIN: Final = (3.0, 8.0)
 EVENT_DETERRENCE: Final = f"{DOMAIN}_deterrence"
+
+# Generative AI (v0.9.0, optional)
+CONF_AI_TASK_ENTITY: Final = "ai_task_entity"
+CONF_AI_SCENARIO_PROBABILITY: Final = "ai_scenario_probability"
+CONF_AI_REPORT: Final = "ai_report"
+CONF_AI_MAX_CALLS: Final = "ai_max_calls_per_day"
+DEFAULT_AI_SCENARIO_PROBABILITY: Final = 25
+DEFAULT_AI_REPORT: Final = False
+DEFAULT_AI_MAX_CALLS: Final = 4
+AI_TIMEOUT_S: Final = 20
+# Why an AI feature did (not) run
+AI_OK: Final = "ok"
+AI_DISABLED: Final = "ai_disabled"
+AI_NOT_SELECTED: Final = "not_selected"
+AI_DAILY_LIMIT: Final = "ai_daily_limit"
+AI_TIMEOUT: Final = "ai_timeout"
+AI_ERROR: Final = "ai_error"
+AI_INVALID: Final = "ai_invalid_output"
+SCENARIO_LOW_SCORE: Final = "scenario_low_score"
 # Why the evening window starts when it does
 START_DARKNESS: Final = "darkness"
 START_SUNSET: Final = "sunset"

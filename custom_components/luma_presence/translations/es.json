@@ -93,6 +93,7 @@
           "covers": "Persianas",
           "ambience": "Ambiente",
           "deterrence": "Disuasión",
+          "ai": "IA",
           "monitoring": "Supervisión",
           "save": "Guardar"
         }
@@ -288,6 +289,22 @@
           "deterrence_enabled": "Desactivada por defecto. Activa mientras es de noche: desde la decisión de oscuridad de la tarde (o la puesta de sol) hasta que es de día, haya o no ventana de simulación.",
           "deterrence_cooldown_min": "Un disparador no vuelve a reaccionar hasta pasado este tiempo desde su última reacción.",
           "deterrence_max_per_night": "Las detecciones siguientes se ignoran hasta la noche siguiente."
+        }
+      },
+      "ai": {
+        "title": "IA (opcional)",
+        "description": "IA generativa opcional mediante una entidad de tarea de IA (por ejemplo, un modelo en la nube o local que tengas configurado). Puede añadir un escenario a algunas tardes de Dream y redactar el informe matinal. Lo que se envía, y nada más: el tipo de noche, el mes y la estación, la puesta de sol redondeada a 15 minutos, si hace mal tiempo o es festivo, y por cada estancia una clave opaca (room_1, room_2...) con un tipo genérico (dormitorio, baño, cocina, salón, despacho, pasillo, otro), su ocupación esperada por hora, sus horas habituales y la duración típica de una visita; para el informe, la simulación de anoche con las mismas claves. Nunca se envían: IDs de entidad, nombres de estancias o áreas, personas, eventos aprendidos, fechas de días reales, ubicación, estados de la alarma ni cámaras. Los nombres de las estancias se recolocan en local. Deja la entidad vacía para desactivarlo todo.",
+        "data": {
+          "ai_task_entity": "Entidad de tarea de IA",
+          "ai_scenario_probability": "Tardes de Dream con escenario",
+          "ai_report": "Redactar el informe matinal con IA",
+          "ai_max_calls_per_day": "Llamadas a la IA por día como máximo"
+        },
+        "data_description": {
+          "ai_task_entity": "Vacía: funciones de IA desactivadas.",
+          "ai_scenario_probability": "Porcentaje de tardes de Dream que reciben un escenario (invitados a cenar, noche de cine...). El despertar nunca se modifica.",
+          "ai_report": "La IA redacta el texto de la notificación; el evento conserva sus datos. Si la IA falla, se envía el texto habitual.",
+          "ai_max_calls_per_day": "Al alcanzar el límite, las funciones de IA se omiten hasta el día siguiente."
         }
       }
     },

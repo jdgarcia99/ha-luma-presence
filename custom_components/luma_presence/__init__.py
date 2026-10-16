@@ -25,6 +25,7 @@ from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
+from .ai import AiAssistant
 from .alarm import AlarmController
 from .ambience import AmbienceEngine
 from .const import (
@@ -326,6 +327,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         ]
         return [light for _, _, light in sorted(same_room)]
 
+    ai = AiAssistant(hass, config)
+    dream.ai = ai
+    # Route destinations are usually bathrooms: a hint for the room types sent to the AI.
+    dream.destination_areas = lambda: {
+        area for route in routes if (area := entity_area_id(hass, route.destination))
+    }
     player.alternatives = sequences.alternatives = alternatives
     player.map_by_room = lambda: settings.map_by_room
     covers = CoverEngine(
@@ -347,6 +354,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         player,
         config.get(CONF_REPORT_NOTIFY),
         dream,
+        ai,
     )
     alarm: AlarmController | None = None
     if config.get(CONF_ALARM_CONTROL, DEFAULT_ALARM_CONTROL) and config.get(CONF_ALARM):
@@ -378,6 +386,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
         covers=covers,
         ambience=ambience,
         deterrence=deterrence,
+        ai=ai,
     )
 
     # Entities restore their settings while the platforms are set up.

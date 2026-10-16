@@ -90,6 +90,7 @@ Setup walks through the same sections that the integration's **Configure** butto
 | Covers | [Blinds, shutters and curtains](#covers) to open and close during an absence (off unless you choose covers) |
 | Ambience | [Media players](#ambience) that play in occupied rooms (off unless you choose players) |
 | Deterrence | [React to someone outside](#deterrence) at night during an absence (off by default; triggers are added from the integration page) |
+| AI | Optional [generative AI](#ai-features): Dream scenarios and the morning report text (off unless you choose an AI task entity) |
 | Monitoring | Minutes a light may stay unavailable before an alert (see [Unavailable lights](#unavailable-lights)), where to send the morning report, and how long to wait for a light to [obey](#lights-that-do-not-obey) |
 
 ### Facades
@@ -372,6 +373,26 @@ automation:
             image: /local/deterrence.jpg
 ```
 
+## AI features
+
+Optional, and **off** until you choose an *AI task entity* (**Configure → AI**; any [AI Task](https://www.home-assistant.io/integrations/ai_task/) provider, cloud or local). Everything else in LumaPresence works offline.
+
+- **Scenarios for Dream:** on a share of Dream evenings (*Dream evenings with a scenario*, 25 %, fixed per night), the AI proposes a plausible evening for tonight — guests for dinner, a movie night, someone going to bed early — as small changes to at most four rooms (activity moved by up to an hour, longer or shorter visits, up to three extra visits). The changes are applied to a copy of tonight's evening model, and that same model generates **and scores** the candidates; if the best one scores below *Dream minimum score*, the scenario is dropped and a normal night is planned (`scenario_low_score`). The wake-up is never changed, and the *Dream a night* preview never calls the AI. The scenario and its explanation appear on `sensor.luma_presence_realism` (with `scenario_reason`), `sensor.luma_presence_tonight_plan` and the morning report.
+- **Morning report:** with *Write the morning report with AI*, the notification text is written by the AI (at most 600 characters, in your Home Assistant language); the `luma_presence_night_report` event keeps its structured data. If the AI fails, the usual text is sent.
+- **Costs:** at most *AI calls per day* calls (4 by default; one per scenario, one per report). When the limit is reached, AI features are skipped until the next day (`ai_daily_limit`). A call that takes more than 20 seconds, fails or returns something invalid is ignored, with its reason.
+- **Disable:** clear the *AI task entity*.
+
+### Privacy contract
+
+Area names often contain people's names ("Lucía's room"), so rooms are never sent by name. For every call LumaPresence numbers the rooms (`room_1`, `room_2`…) and sends only the key with a **generic type** (bedroom, bathroom, kitchen, living, office, hall or other) worked out locally from the area name and aliases (and from night routes: a route destination is usually a bathroom). The key-to-room mapping never leaves Home Assistant; room names are put back into the AI's texts locally.
+
+- **Sent, and nothing else:** the night type (Workday and holidays included), the month and season, sunset rounded to 15 minutes, bad-weather and holiday flags, and for each room key its type, expected occupancy per hour, typical start and end hour and typical visit length. For the report: last night's simulation (mode, source, realism, scenario, room keys with their times, number of routes, deterrence reactions with their facade, covers moved, audio sessions and failures per room key).
+- **Never sent:** entity IDs, area or room names, person names or states, raw learned events, dates of real days, the location, alarm states, cameras or trigger entities.
+
+## Diagnostics
+
+**Settings → Devices & services → LumaPresence → ⋮ → Download diagnostics** gives a JSON file to attach to bug reports: the options and subentries (routes and deterrence triggers, `event_types` included), the engine (mode, status, next event, owned and locked lights), night sequences, the learning gate (open, reasons, return margin) and learning counts — never the learned events —, the model summary, tonight's plan and realism, the context, verification failures, upcoming cover moves, the last morning report, the last deterrence reaction and AI usage today. People, the notify target, the AI task entity and the location are redacted, and so is any person entity ID found in the data; light and area IDs are kept, as they are needed to debug.
+
 ## Lights that do not obey
 
 After every command, LumaPresence waits up to *Wait for a light to obey* (10 s by default; 0 turns it off) for the light to reach the requested state, without blocking anything else. If it does not, it retries once; if it still fails, the light is marked as failed for tonight: Replay and Dream (with *Map by room*) and night routes use another light of the same room, in room-mapping order, and Sun and Time simply choose another light. Failures per light appear in the morning report (`failures: {entity_id: count}`) and its notification. After 3 failures in one night a Repairs issue says the light does not obey (it reports itself available, so this is different from the unavailable-light issue); it disappears after a night without failures.
@@ -412,7 +433,7 @@ The user interface is available in English and Spanish. Contributions for other 
 ## Roadmap
 
 - **Phase 2** (done): night sequences (v0.3.0), Replay mode (v0.4.0) and built-in alarm control (v0.5.0).
-- **Phase 3**: Dream mode core (v0.6.0), context and actuator verification (v0.7.0), covers, ambience and deterrence (v0.8.0); then optional generative AI.
+- **Phase 3**: Dream mode core (v0.6.0), context and actuator verification (v0.7.0), covers, ambience and deterrence (v0.8.0), and optional generative AI with diagnostics (v0.9.0).
 
 ## Development
 

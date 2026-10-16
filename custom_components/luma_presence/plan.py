@@ -183,7 +183,8 @@ class NightPlan:
     source: str  # replay / dream / fallback
     seed: int
     score: float | None = None
-    scenario: str | None = None  # v0.9.0
+    scenario: str | None = None  # v0.9.0, with real room names
+    explanation: str | None = None
     reason: str | None = None
     preview: bool = False
     # Display names of the rooms or targets, for the summary.
@@ -256,6 +257,7 @@ class NightPlan:
             "seed": self.seed,
             "score": self.score,
             "scenario": self.scenario,
+            "explanation": self.explanation,
             "reason": self.reason,
             "names": self.names,
             "covers": self.covers,
@@ -275,6 +277,7 @@ class NightPlan:
             seed=int(data["seed"]),
             score=data.get("score"),
             scenario=data.get("scenario"),
+            explanation=data.get("explanation"),
             reason=data.get("reason"),
             names=dict(data.get("names", {})),
             covers=[list(item) for item in data.get("covers", [])],
