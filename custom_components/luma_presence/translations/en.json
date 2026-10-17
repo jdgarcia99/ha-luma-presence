@@ -96,7 +96,8 @@
           "ai": "AI",
           "monitoring": "Monitoring",
           "save": "Save"
-        }
+        },
+        "description": "{notice}"
       },
       "simulation_lights": {
         "title": "Simulation lights",
@@ -870,9 +871,44 @@
     }
   },
   "issues": {
-    "missing_entities": {
-      "title": "LumaPresence: missing entities",
-      "description": "These entities configured in {title} no longer exist: {entities}. Update the integration options."
+    "missing_entity": {
+      "title": "LumaPresence: {entity_id} no longer exists",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "{entity_id} no longer exists",
+            "description": "{title} uses `{entity_id}`, which no longer exists (for example a replaced device):\n\n{usages}\n\nReplace it with another entity everywhere, or remove it everywhere. Tip: if the new device should simply take its place, you can instead give its entity the old entity ID in Home Assistant, and LumaPresence will pick it up automatically.",
+            "menu_options": {
+              "replace": "Replace it with another entity",
+              "remove": "Remove it everywhere"
+            }
+          },
+          "replace": {
+            "title": "Replace {entity_id}",
+            "description": "The new entity takes the place of `{entity_id}` in:\n\n{usages}\n\nThe learned events of `{entity_id}` are kept under the new entity, so Replay and Dream keep their history.",
+            "data": {
+              "replacement": "Replacement"
+            },
+            "data_description": {
+              "replacement": "An entity of the same kind (a light or switch for lights, a motion, occupancy or presence sensor or an event entity for deterrence triggers)."
+            }
+          },
+          "remove": {
+            "title": "Remove {entity_id}",
+            "description": "`{entity_id}` will be removed from:\n\n{usages}\n\nA route whose origin or destination it is, and a deterrence trigger it fires, are deleted. If it is the alarm panel, alarm control is turned off. Its learned events are kept."
+          }
+        },
+        "error": {
+          "replacement_not_allowed": "Choose a different entity of the same kind.",
+          "replacement_missing": "This entity does not exist either.",
+          "replacement_conflict": "The replacement is already used in a way that conflicts (for example on the other facade, or in the same route). Choose another entity, or fix it in the options or the route.",
+          "remove_last_light": "This is the only simulation light: replace it instead."
+        },
+        "abort": {
+          "not_used": "LumaPresence no longer uses this entity. Nothing to fix.",
+          "entity_back": "The entity exists again. Nothing to fix."
+        }
+      }
     },
     "light_unavailable": {
       "title": "LumaPresence: \"{entity}\" is unavailable",
@@ -910,6 +946,75 @@
     },
     "deterrence_running": {
       "message": "A deterrence reaction is already running."
+    },
+    "removed_from_facades": {
+      "message": "Removed from facades (no longer simulation lights): {entities}."
+    },
+    "save_failed": {
+      "message": "Not saved yet. Fix **{section}**: {error}"
+    },
+    "missing_entity_label": {
+      "message": "{entity_id} (missing)"
+    },
+    "usage_lights": {
+      "message": "Simulation light"
+    },
+    "usage_front_lights": {
+      "message": "Front facade light"
+    },
+    "usage_rear_lights": {
+      "message": "Rear facade light"
+    },
+    "usage_learn_extra": {
+      "message": "Extra learned entity"
+    },
+    "usage_learn_exclude": {
+      "message": "Excluded from learning"
+    },
+    "usage_persons": {
+      "message": "Person (presence)"
+    },
+    "usage_alarm_entity": {
+      "message": "Alarm panel"
+    },
+    "usage_covers": {
+      "message": "Cover"
+    },
+    "usage_ambience_players": {
+      "message": "Ambience media player"
+    },
+    "usage_darkness_sensor": {
+      "message": "Illuminance sensor (context)"
+    },
+    "usage_workday_sensor": {
+      "message": "Workday sensor (context)"
+    },
+    "usage_holiday_calendar": {
+      "message": "Holiday calendar (context)"
+    },
+    "usage_weather_entity": {
+      "message": "Weather (context)"
+    },
+    "usage_ai_task_entity": {
+      "message": "AI task entity"
+    },
+    "usage_route_origin": {
+      "message": "Origin of the route “{name}”"
+    },
+    "usage_route_path": {
+      "message": "Path of the route “{name}”"
+    },
+    "usage_route_destination": {
+      "message": "Destination of the route “{name}”"
+    },
+    "usage_trigger": {
+      "message": "Deterrence trigger “{name}”"
+    },
+    "usage_trigger_path": {
+      "message": "Path of the deterrence trigger “{name}”"
+    },
+    "usage_learned": {
+      "message": "Learned data: {count} events"
     }
   }
 }

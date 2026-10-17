@@ -222,6 +222,13 @@ class LightController:
         return context_id in self._own_set
 
     @callback
+    def async_rename(self, old: str, new: str) -> None:
+        """An entity ID changed: keep owning the light under its new ID."""
+        if old in self._owned:
+            self._owned[new] = self._owned.pop(old)
+            self._save()
+
+    @callback
     def lock(self, entities: Iterable[str]) -> None:
         """Reserve lights for a running route."""
         self._locks.update(entities)

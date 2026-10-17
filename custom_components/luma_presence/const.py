@@ -310,6 +310,8 @@ EVENT_ACTION: Final = f"{DOMAIN}_action"
 EVENT_LIGHT_UNAVAILABLE: Final = f"{DOMAIN}_light_unavailable"
 EVENT_LIGHT_AVAILABLE: Final = f"{DOMAIN}_light_available"
 EVENT_NIGHT_REPORT: Final = f"{DOMAIN}_night_report"
+# An entity ID was renamed and LumaPresence followed it (v0.9.1).
+EVENT_ENTITY_RENAMED: Final = f"{DOMAIN}_entity_renamed"
 
 MAX_START_JITTER_MIN: Final = 30
 MAX_END_JITTER_MIN: Final = 30

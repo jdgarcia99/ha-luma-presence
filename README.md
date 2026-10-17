@@ -418,6 +418,23 @@ automation:
             {{ trigger.event.data.since }} ({{ trigger.event.data.roles }}).
 ```
 
+## Replacing a device
+
+When a device is replaced (a broken relay swapped for a new model, for example), its entities usually get new entity IDs and the old ones disappear.
+
+**Recommended: give the new entity the old entity ID.** In **Settings → Devices & services → Entities**, delete the old entity if it is still listed, open the new one and change its *Entity ID* to the old one (`switch.kitchen_light_new` → `switch.kitchen_light`). LumaPresence keeps working with no change at all, and the learned history stays continuous.
+
+**Renames are followed automatically.** Whenever an entity ID used by LumaPresence is renamed in Home Assistant, the new ID replaces the old one in the options, the night routes and deterrence triggers, and the learned data, and the entry is reloaded once. It is logged at info level and the `luma_presence_entity_renamed` event is fired with `entry_id`, `old_entity_id` and `new_entity_id`.
+
+**Alternative: Repairs → Replace.** Every configured entity that no longer exists raises its own Repairs issue (*… no longer exists*), whether it is used in the options (simulation and facade lights, learning extra or excluded entities, people, alarm panel, covers, media players, context sensors, AI task entity), in a route (origin, path or destination) or in a deterrence trigger (trigger or path). Its fix flow shows where the entity is used and offers:
+
+- **Replace it with another entity** of the same kind (a light or switch for lights; a motion, occupancy or presence sensor or an event entity for deterrence triggers). The options, every route and trigger, and the learned events (so Replay and Dream keep the history) are updated in one go.
+- **Remove it everywhere.** A route whose origin or destination it is, and a deterrence trigger it fires, are deleted; removing the alarm panel turns alarm control off. Its learned events are kept. The only simulation light cannot be removed: replace it instead.
+
+The issue disappears on its own as soon as the entity exists again.
+
+In **Configure**, removing a light from **Simulation lights** also removes it from the facades, with a note on the menu. **Facades** lists entities that no longer exist with a *(missing)* marker so they can be unticked, and if **Save** still finds something to fix, it says what and where on the menu instead of opening another section.
+
 ## Services
 
 - `luma_presence.start` / `luma_presence.stop`: turn the simulation on or off. `stop` accepts an optional `lights_behavior` that overrides the configured stop behaviour.
@@ -433,7 +450,7 @@ The user interface is available in English and Spanish. Contributions for other 
 ## Roadmap
 
 - **Phase 2** (done): night sequences (v0.3.0), Replay mode (v0.4.0) and built-in alarm control (v0.5.0).
-- **Phase 3**: Dream mode core (v0.6.0), context and actuator verification (v0.7.0), covers, ambience and deterrence (v0.8.0), and optional generative AI with diagnostics (v0.9.0).
+- **Phase 3**: Dream mode core (v0.6.0), context and actuator verification (v0.7.0), covers, ambience and deterrence (v0.8.0), optional generative AI with diagnostics (v0.9.0), and painless device replacement (v0.9.1).
 
 ## Development
 

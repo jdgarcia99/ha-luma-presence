@@ -10,7 +10,7 @@ integration page.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 import voluptuous as vol
@@ -42,6 +42,7 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
@@ -49,6 +50,7 @@ from homeassistant.helpers.selector import (
     TextSelectorConfig,
     TimeSelector,
 )
+from homeassistant.helpers.translation import async_get_translations
 
 from .ambience import parse_media
 from .const import (
@@ -260,6 +262,31 @@ def _suggested(options: Mapping[str, Any], key: str) -> dict[str, Any]:
     return {"suggested_value": options.get(key)}
 
 
+async def async_texts(hass: HomeAssistant) -> dict[str, str]:
+    """Translated messages and option labels, in the configured language."""
+    texts: dict[str, str] = {}
+    for category in ("exceptions", "options"):
+        texts.update(
+            await async_get_translations(hass, hass.config.language, category, [DOMAIN])
+        )
+    return texts
+
+
+def text(texts: Mapping[str, str], key: str, **placeholders: Any) -> str:
+    """A translated message (the ``exceptions`` strings) with its placeholders."""
+    message = texts.get(f"component.{DOMAIN}.exceptions.{key}.message", key)
+    for name, value in placeholders.items():
+        message = message.replace(f"{{{name}}}", str(value))
+    return message
+
+
+def _entity_label(hass: HomeAssistant, texts: Mapping[str, str], entity_id: str) -> str:
+    """Name and ID of an entity, or a "(missing)" marker if it no longer exists."""
+    if (state := hass.states.get(entity_id)) is None:
+        return text(texts, "missing_entity_label", entity_id=entity_id)
+    return f"{state.name} ({entity_id})"
+
+
 def _lights_schema(options: Mapping[str, Any]) -> dict[vol.Marker, Any]:
     return {
         vol.Optional(CONF_LIGHTS, description=_suggested(options, CONF_LIGHTS)): (
@@ -268,10 +295,29 @@ def _lights_schema(options: Mapping[str, Any]) -> dict[vol.Marker, Any]:
     }
 
 
-def _facades_schema(options: Mapping[str, Any]) -> vol.Schema:
-    selector = EntitySelector(
-        EntitySelectorConfig(
-            include_entities=list(options.get(CONF_LIGHTS) or []), multiple=True
+def _facades_schema(
+    hass: HomeAssistant, texts: Mapping[str, str], options: Mapping[str, Any]
+) -> vol.Schema:
+    """Front and rear lights, chosen among the simulation lights.
+
+    Entities that no longer exist are listed with a "(missing)" marker, so
+    they can be unticked.
+    """
+    choices = dict.fromkeys(
+        [
+            *(options.get(CONF_LIGHTS) or []),
+            *(options.get(CONF_FRONT_LIGHTS) or []),
+            *(options.get(CONF_REAR_LIGHTS) or []),
+        ]
+    )
+    selector = SelectSelector(
+        SelectSelectorConfig(
+            options=[
+                SelectOptionDict(value=entity_id, label=_entity_label(hass, texts, entity_id))
+                for entity_id in choices
+            ],
+            multiple=True,
+            mode=SelectSelectorMode.LIST,
         )
     )
     return vol.Schema(
@@ -700,6 +746,17 @@ def _validate_presence(options: Mapping[str, Any]) -> dict[str, str]:
     return {}
 
 
+def drop_from_facades(options: dict[str, Any], keep: Iterable[str]) -> list[str]:
+    """Remove from the facades every light not in `keep`; return the removed ones."""
+    keep = set(keep)
+    removed: list[str] = []
+    for key in (CONF_FRONT_LIGHTS, CONF_REAR_LIGHTS):
+        current = list(options.get(key) or [])
+        removed += [light for light in current if light not in keep]
+        options[key] = [light for light in current if light in keep]
+    return list(dict.fromkeys(removed))
+
+
 def _validate_facades(options: Mapping[str, Any]) -> dict[str, str]:
     lights = set(options.get(CONF_LIGHTS) or [])
     front = set(options.get(CONF_FRONT_LIGHTS) or [])
@@ -782,7 +839,11 @@ class _LumaSteps:
                 return await self._async_after(STEP_FACADES)
         return self.async_show_form(
             step_id=STEP_FACADES,
-            data_schema=_facades_schema({**self._options, **(user_input or {})}),
+            data_schema=_facades_schema(
+                self.hass,
+                await async_texts(self.hass),
+                {**self._options, **(user_input or {})},
+            ),
             errors=errors,
         )
 
@@ -886,12 +947,28 @@ class LumaPresenceConfigFlow(_LumaSteps, ConfigFlow, domain=DOMAIN):
         }
 
 
+# The section of the options menu where each Save error is fixed.
+_ERROR_SECTIONS = {
+    CONF_LIGHTS: STEP_SIMULATION_LIGHTS,
+    CONF_FRONT_LIGHTS: STEP_FACADES,
+    CONF_REAR_LIGHTS: STEP_FACADES,
+    "base": STEP_FACADES,
+}
+
+
 class LumaPresenceOptionsFlow(_LumaSteps, OptionsFlow):
-    """Edit the options from a menu; only Save writes the entry."""
+    """Edit the options from a menu; only Save writes the entry.
+
+    Save never sends the user to another step: what is left to fix is shown
+    on the menu, so closing the dialog never loses the changes silently.
+    """
 
     def __init__(self) -> None:
         """Initialize the flow."""
         self._options = {}
+        # Messages shown once on the menu (lights removed from the facades,
+        # what Save could not accept).
+        self._notices: list[str] = []
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -902,7 +979,24 @@ class LumaPresenceOptionsFlow(_LumaSteps, OptionsFlow):
                 **_default_options(self.hass),
                 **self.config_entry.options,
             }
-        return self.async_show_menu(step_id="init", menu_options=MENU_OPTIONS)
+            # Facade lights that are no longer simulation lights (older versions).
+            await self._async_drop_from_facades(self._options.get(CONF_LIGHTS) or [])
+        notices, self._notices = self._notices, []
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=MENU_OPTIONS,
+            description_placeholders={"notice": "\n\n".join(notices)},
+        )
+
+    async def _async_drop_from_facades(self, keep: Iterable[str]) -> None:
+        if removed := drop_from_facades(self._options, keep):
+            self._notices.append(
+                text(
+                    await async_texts(self.hass),
+                    "removed_from_facades",
+                    entities=", ".join(removed),
+                )
+            )
 
     async def async_step_simulation_lights(
         self, user_input: dict[str, Any] | None = None
@@ -913,6 +1007,8 @@ class LumaPresenceOptionsFlow(_LumaSteps, OptionsFlow):
             errors = _validate_lights(user_input)
             if not errors:
                 self._update(STEP_SIMULATION_LIGHTS, user_input)
+                # A light that is no longer simulated cannot light a facade.
+                await self._async_drop_from_facades(self._options[CONF_LIGHTS])
                 return await self.async_step_init()
         return self.async_show_form(
             step_id=STEP_SIMULATION_LIGHTS,
@@ -1029,19 +1125,27 @@ class LumaPresenceOptionsFlow(_LumaSteps, OptionsFlow):
     async def async_step_save(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Validate everything and write the entry."""
-        if errors := _validate_lights(self._options):
-            return self.async_show_form(
-                step_id=STEP_SIMULATION_LIGHTS,
-                data_schema=vol.Schema(_lights_schema(self._options)),
-                errors=errors,
+        """Validate everything and write the entry.
+
+        Last-resort checks: the steps already validate their own fields. An
+        error is shown on the menu, with the section to fix.
+        """
+        if errors := _validate_lights(self._options) or _validate_facades(self._options):
+            field, error = next(iter(errors.items()))
+            texts = await async_texts(self.hass)
+            section = _ERROR_SECTIONS.get(field, STEP_FACADES)
+            self._notices.append(
+                text(
+                    texts,
+                    "save_failed",
+                    section=texts.get(
+                        f"component.{DOMAIN}.options.step.init.menu_options.{section}",
+                        section,
+                    ),
+                    error=texts.get(f"component.{DOMAIN}.options.error.{error}", error),
+                )
             )
-        if errors := _validate_facades(self._options):
-            return self.async_show_form(
-                step_id=STEP_FACADES,
-                data_schema=_facades_schema(self._options),
-                errors=errors,
-            )
+            return await self.async_step_init()
         return self.async_create_entry(data=self._options)
 
     async def _async_after(self, step_id: str) -> ConfigFlowResult:

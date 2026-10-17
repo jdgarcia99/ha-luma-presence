@@ -9,6 +9,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import (
+    Event,
     HomeAssistant,
     ServiceCall,
     ServiceResponse,
@@ -18,8 +19,8 @@ from homeassistant.core import (
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import (
     config_validation as cv,
+    entity_registry as er,
     floor_registry as fr,
-    issue_registry as ir,
 )
 from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.typing import ConfigType
@@ -38,8 +39,6 @@ from .const import (
     CONF_ALARM,
     CONF_ALARM_ACTIVATE_STATES,
     CONF_ALARM_CONTROL,
-    CONF_AMBIENCE_PLAYERS,
-    CONF_COVERS,
     CONF_FRONT_LIGHTS,
     CONF_LEARN_AREAS,
     CONF_LEARN_EXCLUDE,
@@ -48,7 +47,6 @@ from .const import (
     CONF_LIGHTS,
     CONF_MORNING_END,
     CONF_MORNING_WORKDAYS_ONLY,
-    CONF_PERSONS,
     CONF_REAR_LIGHTS,
     CONF_REPORT_NOTIFY,
     CONF_UNAVAILABLE_ALERT_MINUTES,
@@ -87,6 +85,12 @@ from .monitor import (
     async_delete_issues,
 )
 from .plan import PlanPlayer
+from .references import (
+    async_delete_missing_issues,
+    async_follow_rename,
+    async_watch_entities,
+    reload_suppressed,
+)
 from .replay import ReplayEngine
 from .report import NightReporter
 from .scope import entity_area_id
@@ -224,6 +228,23 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         schema=HEATMAP_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
+
+    @callback
+    def _entity_renamed(event: Event[er.EventEntityRegistryUpdatedData]) -> None:
+        """Follow entity ID renames in every entry, loaded or not."""
+        data = event.data
+        if data["action"] != "update" or "old_entity_id" not in data:
+            return
+        old, new = data["old_entity_id"], data["entity_id"]
+        if old == new:
+            return
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            hass.async_create_task(
+                async_follow_rename(hass, entry, old, new),
+                f"{DOMAIN}_rename_{entry.entry_id}",
+            )
+
+    hass.bus.async_listen(er.EVENT_ENTITY_REGISTRY_UPDATED, _entity_renamed)
     return True
 
 
@@ -395,16 +416,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> bool
     async def _async_start(_hass: HomeAssistant) -> None:
         route_lights = [light for route in routes for light in route.lights]
         path_lights = [light for trigger in triggers for light in trigger.path]
-        _check_entities(
-            hass,
-            entry,
-            config,
-            [
-                *route_lights,
-                *path_lights,
-                *(trigger.entity_id for trigger in triggers),
-            ],
-        )
+        async_watch_entities(hass, entry)
         await controller.async_start(
             [*engine.lights, *route_lights, *path_lights, *covers.covers]
         )
@@ -485,8 +497,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> boo
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: LumaConfigEntry) -> None:
-    """Clean up the repair issue when the entry is deleted."""
-    ir.async_delete_issue(hass, DOMAIN, f"missing_entities_{entry.entry_id}")
+    """Clean up the repair issues when the entry is deleted."""
+    async_delete_missing_issues(hass, entry.entry_id)
     async_delete_issues(hass, entry.entry_id)
 
 
@@ -504,36 +516,7 @@ def _light_roles(
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: LumaConfigEntry) -> None:
+    if reload_suppressed(entry.entry_id):
+        return  # a replacement is being written: it reloads once at the end
     await hass.config_entries.async_reload(entry.entry_id)
 
-
-def _check_entities(
-    hass: HomeAssistant, entry: LumaConfigEntry, config: dict, extra: list[str]
-) -> None:
-    """Raise a repair issue if configured entities no longer exist."""
-    entities = [
-        *config.get(CONF_LIGHTS, []),
-        *config.get(CONF_PERSONS, []),
-        *config.get(CONF_COVERS, []),
-        *config.get(CONF_AMBIENCE_PLAYERS, []),
-        *dict.fromkeys(extra),
-    ]
-    if alarm := config.get(CONF_ALARM):
-        entities.append(alarm)
-    missing = [entity_id for entity_id in entities if hass.states.get(entity_id) is None]
-    issue_id = f"missing_entities_{entry.entry_id}"
-    if missing:
-        ir.async_create_issue(
-            hass,
-            DOMAIN,
-            issue_id,
-            is_fixable=False,
-            severity=ir.IssueSeverity.WARNING,
-            translation_key="missing_entities",
-            translation_placeholders={
-                "title": entry.title,
-                "entities": ", ".join(missing),
-            },
-        )
-    else:
-        ir.async_delete_issue(hass, DOMAIN, issue_id)

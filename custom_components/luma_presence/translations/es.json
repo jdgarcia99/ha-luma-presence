@@ -96,7 +96,8 @@
           "ai": "IA",
           "monitoring": "Supervisión",
           "save": "Guardar"
-        }
+        },
+        "description": "{notice}"
       },
       "simulation_lights": {
         "title": "Luces de simulación",
@@ -870,9 +871,44 @@
     }
   },
   "issues": {
-    "missing_entities": {
-      "title": "LumaPresence: faltan entidades",
-      "description": "Estas entidades configuradas en {title} ya no existen: {entities}. Actualiza las opciones de la integración."
+    "missing_entity": {
+      "title": "LumaPresence: {entity_id} ya no existe",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "{entity_id} ya no existe",
+            "description": "{title} usa `{entity_id}`, que ya no existe (por ejemplo, porque se ha sustituido el dispositivo):\n\n{usages}\n\nSustitúyela por otra entidad en todas partes, o quítala de todas partes. Consejo: si el dispositivo nuevo debe ocupar sin más su lugar, también puedes dar a su entidad el ID de entidad antiguo en Home Assistant, y LumaPresence lo recogerá automáticamente.",
+            "menu_options": {
+              "replace": "Sustituirla por otra entidad",
+              "remove": "Quitarla de todas partes"
+            }
+          },
+          "replace": {
+            "title": "Sustituir {entity_id}",
+            "description": "La nueva entidad ocupa el lugar de `{entity_id}` en:\n\n{usages}\n\nLos eventos aprendidos de `{entity_id}` pasan a la nueva entidad, así que Replay y Dream conservan su historial.",
+            "data": {
+              "replacement": "Sustituta"
+            },
+            "data_description": {
+              "replacement": "Una entidad del mismo tipo (una luz o un interruptor para las luces; un sensor de movimiento, ocupación o presencia o una entidad de evento para los disparadores de disuasión)."
+            }
+          },
+          "remove": {
+            "title": "Quitar {entity_id}",
+            "description": "Se quitará `{entity_id}` de:\n\n{usages}\n\nSe eliminan la ruta de la que sea origen o destino y el disparador de disuasión que active. Si es el panel de alarma, se desactiva el control con la alarma. Sus eventos aprendidos se conservan."
+          }
+        },
+        "error": {
+          "replacement_not_allowed": "Elige otra entidad del mismo tipo.",
+          "replacement_missing": "Esta entidad tampoco existe.",
+          "replacement_conflict": "La sustituta ya se usa de una forma incompatible (por ejemplo, en la otra fachada o en la misma ruta). Elige otra entidad, o corrígelo en las opciones o en la ruta.",
+          "remove_last_light": "Es la única luz de simulación: sustitúyela."
+        },
+        "abort": {
+          "not_used": "LumaPresence ya no usa esta entidad. No hay nada que corregir.",
+          "entity_back": "La entidad vuelve a existir. No hay nada que corregir."
+        }
+      }
     },
     "light_unavailable": {
       "title": "LumaPresence: «{entity}» no está disponible",
@@ -910,6 +946,75 @@
     },
     "deterrence_running": {
       "message": "Ya hay una reacción de disuasión en marcha."
+    },
+    "removed_from_facades": {
+      "message": "Se han quitado de las fachadas (ya no son luces de simulación): {entities}."
+    },
+    "save_failed": {
+      "message": "Todavía no se ha guardado. Corrige **{section}**: {error}"
+    },
+    "missing_entity_label": {
+      "message": "{entity_id} (no existe)"
+    },
+    "usage_lights": {
+      "message": "Luz de simulación"
+    },
+    "usage_front_lights": {
+      "message": "Luz de la fachada delantera"
+    },
+    "usage_rear_lights": {
+      "message": "Luz de la fachada trasera"
+    },
+    "usage_learn_extra": {
+      "message": "Entidad adicional del aprendizaje"
+    },
+    "usage_learn_exclude": {
+      "message": "Excluida del aprendizaje"
+    },
+    "usage_persons": {
+      "message": "Persona (presencia)"
+    },
+    "usage_alarm_entity": {
+      "message": "Panel de alarma"
+    },
+    "usage_covers": {
+      "message": "Persiana"
+    },
+    "usage_ambience_players": {
+      "message": "Reproductor del ambiente"
+    },
+    "usage_darkness_sensor": {
+      "message": "Sensor de iluminancia (contexto)"
+    },
+    "usage_workday_sensor": {
+      "message": "Sensor de días laborables (contexto)"
+    },
+    "usage_holiday_calendar": {
+      "message": "Calendario de festivos (contexto)"
+    },
+    "usage_weather_entity": {
+      "message": "Tiempo (contexto)"
+    },
+    "usage_ai_task_entity": {
+      "message": "Entidad de tarea de IA"
+    },
+    "usage_route_origin": {
+      "message": "Origen de la ruta «{name}»"
+    },
+    "usage_route_path": {
+      "message": "Recorrido de la ruta «{name}»"
+    },
+    "usage_route_destination": {
+      "message": "Destino de la ruta «{name}»"
+    },
+    "usage_trigger": {
+      "message": "Disparador de disuasión «{name}»"
+    },
+    "usage_trigger_path": {
+      "message": "Recorrido del disparador de disuasión «{name}»"
+    },
+    "usage_learned": {
+      "message": "Datos aprendidos: {count} eventos"
     }
   }
 }

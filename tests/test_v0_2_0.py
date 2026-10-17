@@ -276,7 +276,8 @@ async def test_options_menu(hass: HomeAssistant, fake_lights) -> None:
     result = await options.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.MENU
 
-    # Dropping a rear light from the simulation lights is caught on Save.
+    # Dropping a rear light from the simulation lights drops it from the
+    # facades too (v0.9.1), with a note on the menu.
     result = await options.async_configure(
         result["flow_id"], {"next_step_id": "simulation_lights"}
     )
@@ -284,12 +285,8 @@ async def test_options_menu(hass: HomeAssistant, fake_lights) -> None:
         result["flow_id"], {CONF_LIGHTS: ["light.salon", "light.bedroom"]}
     )
     assert result["type"] is FlowResultType.MENU
+    assert REAR[0] in result["description_placeholders"]["notice"]
     assert entry.options[CONF_LIGHTS] == LIGHTS  # nothing written yet
-    result = await options.async_configure(result["flow_id"], {"next_step_id": "save"})
-    assert result["step_id"] == "facades"
-    assert result["errors"] == {CONF_REAR_LIGHTS: "facade_not_subset"}
-
-    result = await options.async_configure(result["flow_id"], {CONF_FRONT_LIGHTS: FRONT})
     result = await options.async_configure(result["flow_id"], {"next_step_id": "save"})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()

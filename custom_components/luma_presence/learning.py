@@ -113,6 +113,48 @@ def parse_event(record: list[Any]) -> tuple[str, str, int, str | None]:
     return record[0], record[1], record[2], area_id
 
 
+def learning_store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
+    """The store of the learned days of one entry."""
+    return Store(hass, STORE_VERSION, f"{DOMAIN}.{entry_id}.learning")
+
+
+def count_entity_events(days: dict[str, dict[str, list[Any]]], entity_id: str) -> int:
+    """Learned light and cover events of one entity."""
+    return sum(
+        1
+        for day in days.values()
+        for key in ("events", "covers")
+        for record in day.get(key, [])
+        if record[0] == entity_id
+    )
+
+
+def rename_entity_events(
+    days: dict[str, dict[str, list[Any]]], old: str, new: str
+) -> int:
+    """Store the learned events of `old` under `new`, so the history stays continuous."""
+    renamed = 0
+    for day in days.values():
+        for key in ("events", "covers"):
+            for record in day.get(key, []):
+                if record[0] == old:
+                    record[0] = new
+                    renamed += 1
+    return renamed
+
+
+async def async_rename_in_store(
+    hass: HomeAssistant, entry_id: str, old: str, new: str
+) -> int:
+    """Rename the learned events of an entry that is not loaded."""
+    store = learning_store(hass, entry_id)
+    data = await store.async_load()
+    if not data or not (renamed := rename_entity_events(data.get("days", {}), old, new)):
+        return 0
+    await store.async_save(data)
+    return renamed
+
+
 class LearningGate:
     """Decides when house activity is real and stores it per local day."""
 
@@ -144,9 +186,7 @@ class LearningGate:
         self._human_only = bool(config.get(CONF_HUMAN_ONLY, DEFAULT_HUMAN_ONLY))
         self._covers: list[str] = list(config.get(CONF_COVERS) or [])
 
-        self._store: Store[dict[str, Any]] = Store(
-            hass, STORE_VERSION, f"{DOMAIN}.{entry_id}.learning"
-        )
+        self._store = learning_store(hass, entry_id)
         # {"YYYY-MM-DD": {"exposure": [[s, e], ...],
         #                 "events": [[entity, state, s, area], ...],
         #                 "covers": [[entity, value, s, area], ...]}}
@@ -283,6 +323,18 @@ class LearningGate:
         self._save()
         self._notify()
         return len(removed)
+
+    @callback
+    def async_rename_entity(self, old: str, new: str) -> int:
+        """An entity ID changed: its learned and pending events follow it."""
+        renamed = rename_entity_events(self._days, old, new)
+        for index, pending in enumerate(self._pending):
+            if pending[0] == old:
+                self._pending[index] = (new, *pending[1:])
+                renamed += 1
+        if renamed:
+            self._save()
+        return renamed
 
     @callback
     def async_evaluate(self) -> None:
