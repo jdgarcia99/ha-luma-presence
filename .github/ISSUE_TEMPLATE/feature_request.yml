@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an idea for LumaPresence.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! For open questions or to discuss an idea first, you can also use [Discussions](https://github.com/jdgarcia99/ha-luma-presence/discussions).
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What is missing or hard today, in your home? A concrete situation helps most.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: The solution you would like
+      description: How LumaPresence could solve it.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have considered
+      description: Automations, other integrations or workarounds you use now.
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else

@@ -1,0 +1,71 @@
+name: Bug report
+description: Something in LumaPresence does not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please attach the **diagnostics** file: it is the fastest way to understand what happened in your home.
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      description: "Settings → About."
+      placeholder: "2026.10.2"
+    validations:
+      required: true
+  - type: input
+    id: luma_version
+    attributes:
+      label: LumaPresence version
+      description: "HACS, or Settings → Devices & services → LumaPresence."
+      placeholder: "0.10.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode in use
+      options:
+        - Sun
+        - Time
+        - Replay
+        - Dream
+        - Not relevant (setup, options, learning…)
+    validations:
+      required: true
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: What LumaPresence did, and when (date and time help to find it in the diagnostics).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        **Settings → Devices & services → LumaPresence → ⋮ → Download diagnostics**, then drag the file here.
+        People, the notify target, the AI task entity and the location are redacted; light and area IDs are kept. Check the file first if your entity IDs contain anything you would rather not share.
+      placeholder: Drag the diagnostics file here.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Relevant lines from **Settings → System → Logs**. For more detail, set `custom_components.luma_presence: debug` under `logger:` and restart.
+      render: text
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Lights and integrations involved, alarm panel, recent changes to your setup…

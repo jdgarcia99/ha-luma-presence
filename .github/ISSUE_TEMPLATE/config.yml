@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and help
+    url: https://github.com/jdgarcia99/ha-luma-presence/discussions
+    about: Ask how to set up or use LumaPresence, or share your experience, in Discussions.

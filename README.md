@@ -8,9 +8,44 @@
 
 # LumaPresence
 
+[![Public beta](https://img.shields.io/badge/status-public%20beta-orange)](#status)
+[![HACS custom repository](https://img.shields.io/badge/HACS-custom-41BDF5)](https://hacs.xyz/docs/faq/custom_repositories/)
+[![Release](https://img.shields.io/github/v/release/jdgarcia99/ha-luma-presence)](https://github.com/jdgarcia99/ha-luma-presence/releases)
+
 Presence simulation for Home Assistant that makes an empty house look lived in. LumaPresence switches lights on and off in a random but believable way, works alongside your alarm, and learns how your home is really used.
 
-> **Status: phase 3b (v0.7.0).** Sun, Time, Replay and Dream modes, learning data collection, night sequences, built-in alarm control, context (darkness, mornings, holidays, weather) and actuator verification. Covers, ambience, deterrence and optional AI come next.
+## Status
+
+**Public beta.** Every feature is in place — Sun, Time, Replay and Dream modes, learning, night sequences, alarm control, context, covers, ambience, deterrence and optional AI — but so far LumaPresence has been tested in one home only. Expect rough edges, and please tell us how it behaves in yours: see [Feedback](#feedback).
+
+## Requirements
+
+- Home Assistant **2025.3** or newer.
+- [HACS](https://hacs.xyz/), to install and update the integration.
+- Lights or switches to simulate. People (`person`) and an alarm panel are optional but recommended: they tell LumaPresence when the house is empty.
+
+## Quick start
+
+1. **Install:** in HACS, add `https://github.com/jdgarcia99/ha-luma-presence` as a custom repository (category *Integration*), download **LumaPresence** and restart Home Assistant.
+2. **Add the integration:** **Settings → Devices & services → Add integration → LumaPresence**.
+3. **Choose the lights** the simulation may control, and mark the ones visible from the street or the back of the house as front or rear lights.
+4. **People and alarm:** choose the people of the house and your alarm panel, and turn on *Control the simulation with the alarm*.
+5. **Arm and go:** arm the alarm (away or vacation) when you leave. LumaPresence runs at night and stops when you disarm; while you are home, it learns.
+
+The sections below describe every option. More detail on installation: [Installation (HACS)](#installation-hacs).
+
+## Screenshots
+
+| Configure menu | Dashboard |
+|---|---|
+| <img src="images/screenshots/config-menu.png" alt="The LumaPresence Configure menu, one entry per section" width="380"> | <img src="images/screenshots/dashboard.png" alt="A dashboard with the LumaPresence switches, schedule, lights by facade, learning and Dream" width="300"> |
+
+## Known limitations
+
+- **Dream needs time to learn:** it plans its own nights only after 14 valid learned nights of the night's type (by default) — about three weeks for weekday nights and about seven for weekend nights. Until then it falls back to Replay, then to Sun mode, and says why.
+- **Replay needs eligible nights:** a learned night where at least 80 % of tonight's window was observed and with at least 4 events inside it (by default). Without one, it runs like Sun mode that night.
+- **Languages:** the user interface is available in English and Spanish only. [Translations are welcome](CONTRIBUTING.md#add-a-translation).
+- **Tested in one installation so far:** other devices, integrations and house layouts may behave differently. Reports help: see [Feedback](#feedback).
 
 ## How it works
 
@@ -443,21 +478,35 @@ In **Configure**, removing a light from **Simulation lights** also removes it fr
 - `luma_presence.dream_preview` (returns data): generates tonight's Dream plan without executing it.
 - `luma_presence.get_heatmap` (returns data): real vs dreamed occupancy per room and hour for a day type (`weekday` or `weekend`).
 
+## Feedback
+
+LumaPresence is in public beta, and feedback from other homes is the most useful thing right now.
+
+- **Bugs:** open an [issue](https://github.com/jdgarcia99/ha-luma-presence/issues/new/choose) and attach the **diagnostics** download (**Settings → Devices & services → LumaPresence → ⋮ → Download diagnostics**; people, the notify target, the AI task entity and the location are redacted). Say which mode you use and what you expected.
+- **Ideas and feature requests:** open a [feature request](https://github.com/jdgarcia99/ha-luma-presence/issues/new/choose).
+- **Questions and experiences:** use [Discussions](https://github.com/jdgarcia99/ha-luma-presence/discussions).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for translations and code contributions.
+
 ## Translations
 
-The user interface is available in English and Spanish. Contributions for other languages are welcome: add a file to `custom_components/luma_presence/translations/`.
+The user interface is available in English and Spanish. Contributions for other languages are welcome: add a file to `custom_components/luma_presence/translations/` (see [CONTRIBUTING.md](CONTRIBUTING.md#add-a-translation)).
 
 ## Roadmap
 
 - **Phase 2** (done): night sequences (v0.3.0), Replay mode (v0.4.0) and built-in alarm control (v0.5.0).
 - **Phase 3**: Dream mode core (v0.6.0), context and actuator verification (v0.7.0), covers, ambience and deterrence (v0.8.0), optional generative AI with diagnostics (v0.9.0), and painless device replacement (v0.9.1).
+- **Public beta** (v0.10.0): feedback from more homes before a 1.0 release.
 
 ## Development
 
 ```bash
-pip install pytest-homeassistant-custom-component
+pip install pytest-homeassistant-custom-component ruff
+ruff check .
 pytest
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for branches and pull requests.
 
 ## License
 
