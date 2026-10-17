@@ -10,6 +10,7 @@ from pytest_homeassistant_custom_component.common import (
     async_capture_events,
 )
 
+from homeassistant.components.repairs import models as repairs_models
 from homeassistant.components.repairs.const import DOMAIN as REPAIRS_DOMAIN
 from homeassistant.config_entries import ConfigSubentryData
 from homeassistant.const import STATE_OFF
@@ -148,7 +149,14 @@ async def _repair(hass: HomeAssistant, issue_id: str) -> tuple[Any, dict[str, An
     """Start the fix flow of an issue."""
     assert await async_setup_component(hass, REPAIRS_DOMAIN, {})
     manager = hass.data[REPAIRS_DOMAIN]["flow_manager"]
-    result = await manager.async_init(DOMAIN, context={"issue_id": issue_id})
+    # Recent Home Assistant versions take the issue in the context; older
+    # ones (2025.3 to 2026.2 at least) have no RepairsFlowContext and read it
+    # from the flow data.
+    context_type = getattr(repairs_models, "RepairsFlowContext", None)
+    if "issue_id" in getattr(context_type, "__annotations__", {}):
+        result = await manager.async_init(DOMAIN, context={"issue_id": issue_id})
+    else:
+        result = await manager.async_init(DOMAIN, data={"issue_id": issue_id})
     return manager, result
 
 
@@ -327,6 +335,11 @@ async def test_repair_remove_everywhere(
     manager, result = await _repair(hass, issue_id)
     result = await manager.async_configure(result["flow_id"], {"next_step_id": "remove"})
     assert result["step_id"] == "remove"
+    # Before confirming: the route goes (it is its origin), the trigger stays
+    # (it is only on its path).
+    assert result["description_placeholders"]["consequences"] == (
+        "- The night route “Bath” (it is its origin or destination) is deleted."
+    )
     result = await manager.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
@@ -338,6 +351,36 @@ async def test_repair_remove_everywhere(
     assert _subentry(entry, SUBENTRY_DETERRENCE)[CONF_PATH] == ["light.salon"]
     assert _events_of(entry, OLD) == 2
     assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_repair_remove_lists_destructive_consequences(
+    hass: HomeAssistant, fake_lights, hass_storage
+) -> None:
+    """The remove form names every route and trigger it deletes, before confirming."""
+    gone = "binary_sensor.gone"
+    entry = await _setup(
+        hass,
+        hass_storage,
+        options=OPTIONS,
+        triggers=[
+            {**TRIGGER, CONF_TRIGGER_ENTITY: gone, CONF_PATH: []},
+            {**TRIGGER, CONF_PATH: []},  # another sensor: kept
+        ],
+        learned=None,
+    )
+    manager, result = await _repair(hass, _issue_id(entry, gone))
+    result = await manager.async_configure(result["flow_id"], {"next_step_id": "remove"})
+    assert result["step_id"] == "remove"
+    assert result["description_placeholders"]["consequences"] == (
+        "- The deterrence trigger “Patio” (it fires it) is deleted."
+    )
+    # Nothing is deleted until it is confirmed.
+    assert len(entry.subentries) == 2
+
+    result = await manager.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert [s.data[CONF_TRIGGER_ENTITY] for s in entry.subentries.values()] == [MOTION]
 
 
 async def test_repair_remove_alarm_and_last_light(
@@ -359,11 +402,17 @@ async def test_repair_remove_alarm_and_last_light(
     )
     manager, result = await _repair(hass, _issue_id(entry, OLD))
     result = await manager.async_configure(result["flow_id"], {"next_step_id": "remove"})
+    assert result["description_placeholders"]["consequences"] == (
+        "- Nothing else: no route or deterrence trigger is deleted."
+    )
     result = await manager.async_configure(result["flow_id"], {})
     assert result["errors"] == {"base": "remove_last_light"}
 
     manager, result = await _repair(hass, _issue_id(entry, "alarm_control_panel.gone"))
     result = await manager.async_configure(result["flow_id"], {"next_step_id": "remove"})
+    assert result["description_placeholders"]["consequences"] == (
+        "- Alarm control is turned off (it is the alarm panel)."
+    )
     result = await manager.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()

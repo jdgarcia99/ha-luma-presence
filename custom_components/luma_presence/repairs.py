@@ -16,11 +16,13 @@ from homeassistant.helpers.selector import EntitySelector, EntitySelectorConfig
 from .config_flow import async_texts, text
 from .const import DOMAIN
 from .references import (
+    MISSING_ISSUE_PREFIX,
     Usage,
     async_replace,
     entity_usages,
     learned_event_count,
     plan_replacement,
+    removal_consequences,
     replacement_domains,
     replacement_filter,
 )
@@ -49,16 +51,18 @@ class ReplaceEntityFlow(RepairsFlow):
         """Initialize the flow."""
         self._entry_id = entry_id
         self._entity_id = entity_id
+        # Not self.issue_id: where it comes from changed between Home Assistant versions.
+        self._issue = MISSING_ISSUE_PREFIX.format(entry_id=entry_id) + entity_id
 
     def _usages(self) -> tuple[ConfigEntry, list[Usage]]:
         """The entry and the uses of the entity; aborts if there is nothing to fix."""
         entry = self.hass.config_entries.async_get_entry(self._entry_id)
         usages = entity_usages(entry).get(self._entity_id) if entry else None
         if entry is None or not usages:
-            ir.async_delete_issue(self.hass, DOMAIN, self.issue_id)
+            ir.async_delete_issue(self.hass, DOMAIN, self._issue)
             raise data_entry_flow.AbortFlow("not_used")
         if self.hass.states.get(self._entity_id) is not None:
-            ir.async_delete_issue(self.hass, DOMAIN, self.issue_id)
+            ir.async_delete_issue(self.hass, DOMAIN, self._issue)
             raise data_entry_flow.AbortFlow("entity_back")
         return entry, usages
 
@@ -123,18 +127,29 @@ class ReplaceEntityFlow(RepairsFlow):
     async def async_step_remove(
         self, user_input: dict[str, Any] | None = None
     ) -> data_entry_flow.FlowResult:
-        """Remove the entity from the options, routes and deterrence triggers."""
+        """Remove the entity from the options, routes and deterrence triggers.
+
+        Before confirming, the form says what else is deleted or turned off.
+        """
         entry, usages = self._usages()
+        plan = plan_replacement(self.hass, entry, self._entity_id, None)
         errors: dict[str, str] = {}
         if user_input is not None:
-            plan = plan_replacement(self.hass, entry, self._entity_id, None)
             errors = plan.errors
             if not errors:
                 await async_replace(self.hass, entry, self._entity_id, None, plan)
                 return self.async_create_entry(data={})
+        texts = await async_texts(self.hass)
+        consequences = [
+            text(texts, key, name=name)
+            for key, name in removal_consequences(entry, self._entity_id, plan)
+        ] or [text(texts, "removes_nothing_else")]
         return self.async_show_form(
             step_id=STEP_REMOVE,
             data_schema=vol.Schema({}),
             errors=errors,
-            description_placeholders=await self._placeholders(entry, usages),
+            description_placeholders={
+                **await self._placeholders(entry, usages),
+                "consequences": "\n".join(f"- {line}" for line in consequences),
+            },
         )

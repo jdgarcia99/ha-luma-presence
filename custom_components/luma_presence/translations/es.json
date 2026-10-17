@@ -895,7 +895,7 @@
           },
           "remove": {
             "title": "Quitar {entity_id}",
-            "description": "Se quitará `{entity_id}` de:\n\n{usages}\n\nSe eliminan la ruta de la que sea origen o destino y el disparador de disuasión que active. Si es el panel de alarma, se desactiva el control con la alarma. Sus eventos aprendidos se conservan."
+            "description": "Se quitará `{entity_id}` de:\n\n{usages}\n\n**Además se elimina o desactiva:**\n\n{consequences}\n\nSus eventos aprendidos se conservan. Esto no se puede deshacer desde aquí."
           }
         },
         "error": {
@@ -1015,6 +1015,18 @@
     },
     "usage_learned": {
       "message": "Datos aprendidos: {count} eventos"
+    },
+    "removes_route": {
+      "message": "Se elimina la ruta nocturna «{name}» (es su origen o su destino)."
+    },
+    "removes_trigger": {
+      "message": "Se elimina el disparador de disuasión «{name}» (es quien lo activa)."
+    },
+    "removes_alarm_control": {
+      "message": "Se desactiva el control con la alarma (es el panel de alarma)."
+    },
+    "removes_nothing_else": {
+      "message": "Nada más: no se elimina ninguna ruta ni ningún disparador de disuasión."
     }
   }
 }

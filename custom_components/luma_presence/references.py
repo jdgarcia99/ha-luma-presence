@@ -277,6 +277,29 @@ def plan_replacement(
     return plan
 
 
+def removal_consequences(
+    entry: ConfigEntry, entity_id: str, plan: Replacement
+) -> list[tuple[str, str]]:
+    """What removing an entity deletes or turns off, beyond the entity itself.
+
+    (message key, route or trigger name): the routes and deterrence triggers
+    that are deleted, and alarm control if it is turned off.
+    """
+    consequences = []
+    for subentry_id, change in plan.subentries.items():
+        if change is None:
+            subentry = entry.subentries[subentry_id]
+            key = (
+                "removes_route"
+                if subentry.subentry_type == SUBENTRY_ROUTE
+                else "removes_trigger"
+            )
+            consequences.append((key, subentry.title))
+    if entry.options.get(CONF_ALARM) == entity_id and entry.options.get(CONF_ALARM_CONTROL):
+        consequences.append(("removes_alarm_control", ""))
+    return consequences
+
+
 def reload_suppressed(entry_id: str) -> bool:
     """True while a replacement is being written (it reloads once at the end)."""
     return entry_id in _APPLYING

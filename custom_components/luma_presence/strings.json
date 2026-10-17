@@ -895,7 +895,7 @@
           },
           "remove": {
             "title": "Remove {entity_id}",
-            "description": "`{entity_id}` will be removed from:\n\n{usages}\n\nA route whose origin or destination it is, and a deterrence trigger it fires, are deleted. If it is the alarm panel, alarm control is turned off. Its learned events are kept."
+            "description": "`{entity_id}` will be removed from:\n\n{usages}\n\n**This also deletes or turns off:**\n\n{consequences}\n\nIts learned events are kept. This cannot be undone from here."
           }
         },
         "error": {
@@ -1015,6 +1015,18 @@
     },
     "usage_learned": {
       "message": "Learned data: {count} events"
+    },
+    "removes_route": {
+      "message": "The night route “{name}” (it is its origin or destination) is deleted."
+    },
+    "removes_trigger": {
+      "message": "The deterrence trigger “{name}” (it fires it) is deleted."
+    },
+    "removes_alarm_control": {
+      "message": "Alarm control is turned off (it is the alarm panel)."
+    },
+    "removes_nothing_else": {
+      "message": "Nothing else: no route or deterrence trigger is deleted."
     }
   }
 }
