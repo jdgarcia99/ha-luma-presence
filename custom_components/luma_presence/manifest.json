@@ -8,5 +8,5 @@
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/jdgarcia99/ha-luma-presence/issues",
   "requirements": [],
-  "version": "0.9.0"
+  "version": "0.9.1"
 }
